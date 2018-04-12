@@ -89,7 +89,17 @@ func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Portal) get(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "TODO", http.StatusNotImplemented)
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		http.Error(w, "required 'file' parameter missing", http.StatusExpectationFailed)
+		return
+	}
+	data, ok := p.mem[file]
+	if !ok {
+		http.Error(w, "file does not exist locally", http.StatusGone)
+		return
+	}
+	w.Write(data)
 }
 
 func (p *Portal) del(w http.ResponseWriter, r *http.Request) {
