@@ -26,6 +26,10 @@ type Network struct {
 	Outgoing    chan *Message
 }
 
+func (n *Network) LenConns() int {
+	return int(atomic.LoadInt32(&n.lastID)) + 1
+}
+
 func RunServer(exit chan int) *Network {
 	network := &Network{
 		Connections: make([]Client, maxClient), // max of int16
@@ -68,17 +72,10 @@ func runBroadcastListener(s *Network, exit chan int) {
 	for alive {
 		select {
 		case msg := <-incoming:
-			if msg.Target == 0 {
-				log.Printf("Heard my own multicast come back at me.")
-				break
-			}
-
-			log.Printf("Got a message from (%d): %#v", msg.Target, msg.Raw)
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
 			if length > 1500 {
 				panic("TOO BIG MSG")
 			}
-
 			result := decode(msg, length)
 			for _, a := range result.Data.Clients {
 				found := false
@@ -124,7 +121,7 @@ func (s *Network) addConn(addr string, ipaddr *net.UDPAddr) int16 {
 			panic("bad client addr")
 		}
 	}
-	log.Printf("  New conn, assigning idx: %d.", val)
+	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
 	s.connLookup[addr] = int16(val)
 	s.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true}
 	return int16(val)

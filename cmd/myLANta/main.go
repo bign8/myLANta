@@ -30,6 +30,10 @@ func main() {
 	signal.Notify(cancel, os.Interrupt)
 
 	go func() {
+		time.Sleep(time.Second*10)
+		sendHeartbeat(network)
+	}
+	go func() {
 		buf := make([]byte, 1)
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -38,8 +42,10 @@ func main() {
 			}
 			if n == 1 {
 				switch buf[0] {
-				case 'p':
+				case 'h':
 					sendHeartbeat(network)
+				case 'c':
+					log.Printf("Current Clients: %#v", network.Connections[:network.LenConns()])
 				}
 			}
 		}
@@ -53,7 +59,7 @@ func main() {
 
 func sendHeartbeat(network *mylanta.Network) {
 	clients := []string{}
-	for _, c := range network.Connections[1:] {
+	for _, c := range network.Connections[2:] {
 		if c.Addr == nil {
 			break
 		}
