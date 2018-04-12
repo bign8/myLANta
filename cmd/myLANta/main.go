@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/bign8/myLANta"
+	"github.com/bign8/myLANta/mylanta"
 )
 
 var portz = flag.String("PORT", "8080", "port to serve on")
@@ -17,10 +17,10 @@ var portz = flag.String("PORT", "8080", "port to serve on")
 func main() {
 	exit := make(chan int, 10)
 	log.Printf("Launching Server.")
-	network := myLANta.RunServer(exit)
+	network := mylanta.RunServer(exit)
 
 	go func() {
-		hb := myLANta.Heartbeat{
+		hb := mylanta.Heartbeat{
 			Clients: []string{"a client"},
 			Files:   map[string]string{"afile": "jajajaja"},
 		}
@@ -34,8 +34,8 @@ func main() {
 			bytes := []byte{0, 0}
 			binary.LittleEndian.PutUint16(bytes, uint16(len(msg)))
 			time.Sleep(time.Second)
-			network.Outgoing <- &myLANta.Message{
-				Target: myLANta.BroadcastTarget,
+			network.Outgoing <- &mylanta.Message{
+				Target: mylanta.BroadcastTarget,
 				Raw:    append(bytes, msg...),
 			}
 		}

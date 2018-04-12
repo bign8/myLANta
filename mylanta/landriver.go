@@ -1,4 +1,4 @@
-package myLANta
+package mylanta
 
 import (
 	"encoding/binary"
@@ -72,13 +72,24 @@ func runBroadcastListener(s *Network, exit chan int) {
 				log.Printf("Heard my own multicast come back at me.")
 				break
 			}
+
 			log.Printf("Got a message from (%d): %#v", msg.Target, msg.Raw)
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
 			if length > 1500 {
 				panic("TOO BIG MSG")
 			}
+
 			result := decode(msg, length)
-			log.Printf("RESULTING DATA: %s", result.Data)
+			for _, a := range result.Data.Clients {
+				for _, c := range s.Connections {
+					if c.Addr == nil {
+						break
+					}
+					if c.Addr.String() == a {
+						s.connLookup[a] = s.addConn(a, nil)
+					}
+				}
+			}
 		case msg := <-s.Outgoing:
 			if msg.Target > int16(atomic.LoadInt32(&s.lastID)) {
 				break // can't find this user
@@ -94,6 +105,24 @@ func runBroadcastListener(s *Network, exit chan int) {
 	}
 	fmt.Println("Killing Socket Server")
 	s.conn.Close()
+}
+
+func (s *Network) addConn(addr string, ipaddr *net.UDPAddr) int16 {
+	val := atomic.AddInt32(&s.lastID, 1)
+	if val > maxClient {
+		panic("too many clients have connected")
+	}
+	if ipaddr == nil {
+		var err error
+		ipaddr, err = net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			panic("bad client addr")
+		}
+	}
+	log.Printf("  New conn, assigning idx: %d.", val)
+	s.connLookup[addr] = int16(val)
+	s.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true}
+	return int16(val)
 }
 
 func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
@@ -115,14 +144,7 @@ func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 		log.Printf("Incoming from %s", addr)
 		connidx, ok := s.connLookup[addr]
 		if !ok {
-			val := atomic.AddInt32(&s.lastID, 1)
-			if val > maxClient {
-				panic("too many clients have connected")
-			}
-			log.Printf("  New conn, assigning idx: %d.", val)
-			connidx = int16(val)
-			s.connLookup[addr] = connidx
-			s.Connections[connidx] = Client{Addr: ipaddr, ID: connidx, Alive: true}
+			connidx = s.addConn(addr, ipaddr)
 		}
 		incoming <- &Message{
 			Raw:    buf[:n],
