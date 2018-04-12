@@ -14,7 +14,7 @@ import (
 	"github.com/bign8/myLANta/web"
 )
 
-var portz = flag.String("PORT", "8080", "port to serve on")
+var portz = flag.String("PORT", "9696", "port to serve on")
 
 func main() {
 	exit := make(chan int, 10)

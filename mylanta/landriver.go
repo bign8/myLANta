@@ -26,6 +26,18 @@ type Network struct {
 	Outgoing    chan *Message
 }
 
+func (n *Network) ActiveClients() []Client {
+	result := make([]Client, n.LenConns())
+	idx := 0
+	for _, c := range n.Connections {
+		if c.Alive {
+			result[idx] = c
+			idx++
+		}
+	}
+	return result[:idx]
+}
+
 func (n *Network) LenConns() int {
 	return int(atomic.LoadInt32(&n.lastID)) + 1
 }
