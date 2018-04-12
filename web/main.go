@@ -25,6 +25,7 @@ func New(net *mylanta.Network) http.Handler {
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
 	p.mux.HandleFunc("/list", p.list)
+	p.mux.HandleFunc("/peers", p.peers)
 	return p.mux
 }
 
@@ -88,4 +89,7 @@ func (p *Portal) list(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", " ")
 	enc.Encode(names)
+}
+func (p *Portal) peers(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "TODO", http.StatusNotImplemented)
 }
