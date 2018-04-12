@@ -36,6 +36,9 @@ func (n *Network) ActiveClients() []Client {
 		if i < 2 {
 			continue
 		}
+		if c.Addr == nil {
+			break
+		}
 		if c.Alive {
 			result[idx] = c
 			idx++
@@ -163,7 +166,8 @@ func (s *Network) timeoutStale() {
 		}
 		if now.Sub(c.LastPing) > time.Second*15 {
 			log.Printf("   timed out: %#v", c)
-			s.Connections[i].Alive = false
+			c.Alive = false
+			s.Connections[i] = c
 		}
 	}
 }
@@ -223,6 +227,7 @@ type Client struct {
 	ID       int16
 	Alive    bool
 	LastPing time.Time
+	Name     string
 }
 
 type Message struct {
