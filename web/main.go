@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -9,11 +8,11 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/bign8/myLANta/mylanta"
+	"github.com/bign8/myLANta/net"
 )
 
 // New constructs a new web portan handler.
-func New(net *mylanta.Network) http.Handler {
+func New(net *net.Network) http.Handler {
 	p := &Portal{
 		mux: http.NewServeMux(),
 		web: http.FileServer(http.Dir("web")),
@@ -26,7 +25,6 @@ func New(net *mylanta.Network) http.Handler {
 	p.mux.HandleFunc("/add", p.add)
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
-	p.mux.HandleFunc("/peers", p.peers)
 	return p.mux
 }
 
@@ -34,7 +32,7 @@ func New(net *mylanta.Network) http.Handler {
 type Portal struct {
 	mux *http.ServeMux
 	web http.Handler
-	net *mylanta.Network
+	net *net.Network
 	mem map[string][]byte
 	loc sync.RWMutex
 	tpl *template.Template
@@ -50,10 +48,10 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		p.tpl = template.Must(template.ParseFiles("web/index.html")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
-			Peers []mylanta.Client
+			Peers []net.Client
 			Files []string
 		}{
-			Peers: p.net.ActiveClients(),
+			Peers: p.net.Clients(),
 			Files: p.list(),
 		})
 		if err != nil {
@@ -116,10 +114,4 @@ func (p *Portal) list() []string {
 	p.loc.RUnlock()
 	sort.Strings(names)
 	return names
-}
-
-func (p *Portal) peers(w http.ResponseWriter, r *http.Request) {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", " ")
-	enc.Encode(p.net.ActiveClients())
 }

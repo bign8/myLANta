@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/bign8/myLANta/mylanta"
+	"github.com/bign8/myLANta/net"
 	"github.com/bign8/myLANta/web"
 )
 
@@ -19,7 +19,7 @@ var portz = flag.String("port", "9696", "port to serve on")
 func main() {
 	exit := make(chan int, 10)
 	log.Printf("Launching Server.")
-	network := mylanta.RunServer(exit)
+	network := net.New(exit)
 
 	flag.Parse()
 	log.Println("Serving on :" + *portz)
@@ -49,7 +49,7 @@ func main() {
 				case 'h':
 					sendHeartbeat(network)
 				case 'c':
-					log.Printf("Current Clients: %#v", network.Connections[:network.LenConns()])
+					log.Printf("Current Clients: %#v", network.Clients())
 				}
 			}
 		}
@@ -61,9 +61,9 @@ func main() {
 	log.Printf("goodbye")
 }
 
-func sendHeartbeat(network *mylanta.Network) {
-	hb := mylanta.Heartbeat{
-		Clients: network.ActiveClients(),
+func sendHeartbeat(network *net.Network) {
+	hb := net.Heartbeat{
+		Clients: network.Clients(),
 		Files:   map[string]string{},
 	}
 	msg, err := json.Marshal(hb)
@@ -73,8 +73,8 @@ func sendHeartbeat(network *mylanta.Network) {
 	}
 	bytes := []byte{0, 0}
 	binary.LittleEndian.PutUint16(bytes, uint16(len(msg)))
-	network.Outgoing <- &mylanta.Message{
-		Target: mylanta.BroadcastTarget,
+	network.Outgoing <- &net.Message{
+		Target: 0,
 		Raw:    append(bytes, msg...),
 	}
 }

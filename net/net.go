@@ -1,4 +1,4 @@
-package mylanta
+package net
 
 import (
 	"encoding/binary"
@@ -18,8 +18,8 @@ import (
 var discoveryAddr = "239.1.12.123:9999"
 
 const maxClient = 1 << 16
-const BroadcastTarget = 0
 
+// Network is a udp network manager.
 type Network struct {
 	conn        *net.UDPConn
 	bconn       *net.UDPConn
@@ -31,29 +31,19 @@ type Network struct {
 	mahport     string
 }
 
-func (n *Network) ActiveClients() []Client {
-	result := make([]Client, n.LenConns())
-	idx := 0
-	for i, c := range n.Connections {
-		if i == 0 {
-			continue
-		}
-		if c.Addr == nil {
-			break
-		}
-		if c.Alive {
-			result[idx] = c
-			idx++
+// Clients gives the active clients list
+func (n *Network) Clients() []Client {
+	result := make([]Client, 0, int(atomic.LoadInt32(&n.lastID))+1)
+	for _, c := range n.Connections[1:] {
+		if c.Addr != nil && c.Alive {
+			result = append(result, c)
 		}
 	}
-	return result[:idx]
+	return result
 }
 
-func (n *Network) LenConns() int {
-	return int(atomic.LoadInt32(&n.lastID)) + 1
-}
-
-func RunServer(exit chan int) *Network {
+// New creates a new network.
+func New(exit chan int) *Network {
 	network := &Network{
 		Connections: make([]Client, maxClient), // max of int16
 		connLookup:  &sync.Map{},
@@ -106,32 +96,32 @@ func RunServer(exit chan int) *Network {
 	return network
 }
 
-func runBroadcastListener(s *Network, exit chan int) {
+func runBroadcastListener(n *Network, exit chan int) {
 	log.Printf("Online.")
 	incoming := make(chan *Message, 100)
-	go s.listen(s.conn, s.Connections[1].Addr.Port, incoming)
-	go s.listen(s.bconn, s.Connections[1].Addr.Port, incoming)
+	go n.listen(n.conn, n.Connections[1].Addr.Port, incoming)
+	go n.listen(n.bconn, n.Connections[1].Addr.Port, incoming)
 
 	alive := true
 	for alive {
 		timeout := time.After(time.Second * 15)
 		select {
 		case msg := <-incoming:
-			con := s.Connections[msg.Target]
+			con := n.Connections[msg.Target]
 			con.Alive = true
 			con.LastPing = time.Now()
-			s.Connections[msg.Target] = con
+			n.Connections[msg.Target] = con
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
 			if length > 1500 {
 				panic("TOO BIG MSG")
 			}
-			s.processPeers(decode(msg, length))
-		case msg := <-s.Outgoing:
-			if msg.Target > int16(atomic.LoadInt32(&s.lastID)) {
+			n.processPeers(decode(msg, length))
+		case msg := <-n.Outgoing:
+			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
 				break // can't find this user
 			}
-			addr := s.Connections[msg.Target].Addr
-			if n, err := s.conn.WriteToUDP(msg.Raw, addr); err != nil {
+			addr := n.Connections[msg.Target].Addr
+			if n, err := n.conn.WriteToUDP(msg.Raw, addr); err != nil {
 				fmt.Println("Error: ", err, " Bytes Written: ", n)
 			}
 		case <-exit:
@@ -139,33 +129,33 @@ func runBroadcastListener(s *Network, exit chan int) {
 			break
 		case <-timeout:
 		}
-		s.timeoutStale()
+		n.timeoutStale()
 	}
 	fmt.Println("Killing Socket Server")
-	s.conn.Close()
+	n.conn.Close()
 }
 
-func (s *Network) processPeers(result *Message) {
+func (n *Network) processPeers(result *Message) {
 	for idx, peer := range result.Data.Clients {
 		if idx == 0 {
 			// hax, i know the first user is the person who sent it...
-			s.Connections[result.Target].Name = peer.Name
+			n.Connections[result.Target].Name = peer.Name
 			continue
 		}
-		if _, ok := s.connLookup.Load(peer.Addr.String()); !ok {
-			s.connLookup.Store(peer.Addr.String(), s.addConn(peer.Name, peer.Addr.String(), nil))
+		if _, ok := n.connLookup.Load(peer.Addr.String()); !ok {
+			n.connLookup.Store(peer.Addr.String(), n.addConn(peer.Name, peer.Addr.String(), nil))
 		}
 	}
 
 }
 
-func (s *Network) timeoutStale() {
+func (n *Network) timeoutStale() {
 	now := time.Now()
-	for i := range s.Connections {
+	for i := range n.Connections {
 		if i < 2 {
 			continue
 		}
-		c := s.Connections[i]
+		c := n.Connections[i]
 		if c.Addr == nil {
 			break
 		}
@@ -175,13 +165,13 @@ func (s *Network) timeoutStale() {
 		if now.Sub(c.LastPing) > time.Second*30 {
 			log.Printf("   timed out: %#v", c)
 			c.Alive = false
-			s.Connections[i] = c
+			n.Connections[i] = c
 		}
 	}
 }
 
-func (s *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
-	val := atomic.AddInt32(&s.lastID, 1)
+func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
+	val := atomic.AddInt32(&n.lastID, 1)
 	if val > maxClient {
 		panic("too many clients have connected")
 	}
@@ -192,46 +182,47 @@ func (s *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
 			panic("bad client addr")
 		}
 	}
-	for _, maddr := range s.myips {
-		raddr := maddr + ":" + s.mahport
+	for _, maddr := range n.myips {
+		raddr := maddr + ":" + n.mahport
 		if addr == raddr {
 			log.Printf("   Ignoring peer %s", addr)
 			return 1 // ignore my own messages
 		}
 	}
 	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
-	s.connLookup.Store(addr, int16(val))
-	s.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true, Name: name}
+	n.connLookup.Store(addr, int16(val))
+	n.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true, Name: name}
 	return int16(val)
 }
 
-func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
+func (n *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 	buf := make([]byte, 2048)
 	for {
-		n, ipaddr, err := conn.ReadFromUDP(buf)
+		m, ipaddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			fmt.Println("ERROR: ", err)
 			return
 		}
-		if n == 0 {
+		if m == 0 {
 			continue
 		}
 		// Is this the fastest and simplest way to lookup unique connection?
 		addr := ipaddr.String()
 		var connidx int16
-		lv, ok := s.connLookup.Load(addr)
+		lv, ok := n.connLookup.Load(addr)
 		if !ok {
-			connidx = s.addConn("", addr, ipaddr)
+			connidx = n.addConn("", addr, ipaddr)
 		} else {
 			connidx = lv.(int16)
 		}
 		incoming <- &Message{
-			Raw:    buf[:n],
+			Raw:    buf[:m],
 			Target: connidx,
 		}
 	}
 }
 
+// Client is all the metadata for a client.
 type Client struct {
 	Addr     *net.UDPAddr
 	ID       int16 `js:"-"`
@@ -240,6 +231,7 @@ type Client struct {
 	Name     string
 }
 
+// Message containing the messaging.
 type Message struct {
 	Raw    []byte
 	Target int16
@@ -260,6 +252,7 @@ func decode(m *Message, length uint16) *Message {
 	return dcd
 }
 
+// Heartbeat information.
 type Heartbeat struct {
 	Clients []Client
 	Files   map[string]string // map of file name to md5
