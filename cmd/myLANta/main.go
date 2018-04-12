@@ -10,6 +10,7 @@ import (
 	"os/signal"
 
 	"github.com/bign8/myLANta/mylanta"
+	"github.com/bign8/myLANta/web"
 )
 
 var portz = flag.String("PORT", "8080", "port to serve on")
@@ -22,7 +23,7 @@ func main() {
 	flag.Parse()
 	log.Println("Serving on :" + *portz)
 	go func() {
-		panic(http.ListenAndServe(":"+*portz, nil))
+		panic(http.ListenAndServe(":"+*portz, web.New(network)))
 	}()
 
 	cancel := make(chan os.Signal, 1)
