@@ -28,6 +28,7 @@ func main() {
 			}
 			bytes := []byte{0, 0}
 			binary.LittleEndian.PutUint16(bytes, uint16(len(msg)))
+			log.Printf("len: %#v   :::    msg: %#v", bytes, msg)
 			time.Sleep(time.Second)
 			network.outgoing <- &Message{
 				Target: BroadcastTarget,
@@ -55,13 +56,13 @@ type Message struct {
 	Data   Heartbeat
 }
 
-func decode(m *Message) *Message {
+func decode(m *Message, length uint16) *Message {
 	dcd := &Message{
 		Raw:    m.Raw,
 		Target: m.Target,
 	}
 	hb := Heartbeat{}
-	lol := json.Unmarshal(m.Raw[:2], &hb)
+	lol := json.Unmarshal(m.Raw[2:], &hb)
 	if lol != nil {
 		panic(lol)
 	}

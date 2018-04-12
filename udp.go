@@ -76,7 +76,7 @@ func runBroadcastListener(s *Network, exit chan int) {
 			if length > 1500 {
 				panic("TOO BIG MSG")
 			}
-			result := decode(msg)
+			result := decode(msg, length)
 			log.Printf("RESULTING DATA: %s", result.Data)
 		case msg := <-s.outgoing:
 			if msg.Target > int16(atomic.LoadInt32(&s.lastID)) {
