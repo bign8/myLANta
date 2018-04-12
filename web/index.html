@@ -31,9 +31,12 @@
         {{- end}}
       </ul>
 
-      <!-- short term hack -->
       <h2>Peers</h2>
-      <iframe src="/peers"></iframe>
+      <ul class="list">
+        {{- range .Peers -}}
+        <li>{{.Addr.IP}}:{{.Addr.Port}}</li>
+        {{- end}}
+      </ul>
     </div>
 
 
