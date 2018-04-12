@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/bign8/myLANta/mylanta"
 	"github.com/bign8/myLANta/web"
@@ -30,9 +31,12 @@ func main() {
 	signal.Notify(cancel, os.Interrupt)
 
 	go func() {
-		time.Sleep(time.Second*10)
-		sendHeartbeat(network)
-	}
+		for {
+			time.Sleep(time.Second * 10)
+			sendHeartbeat(network)
+		}
+	}()
+
 	go func() {
 		buf := make([]byte, 1)
 		for {
