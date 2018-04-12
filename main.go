@@ -14,7 +14,7 @@ import (
 	"github.com/bign8/myLANta/web"
 )
 
-var portz = flag.String("PORT", "9696", "port to serve on")
+var portz = flag.String("port", "9696", "port to serve on")
 
 func main() {
 	exit := make(chan int, 10)
@@ -62,12 +62,8 @@ func main() {
 }
 
 func sendHeartbeat(network *mylanta.Network) {
-	clients := []string{}
-	for _, c := range network.ActiveClients() {
-		clients = append(clients, c.Addr.String())
-	}
 	hb := mylanta.Heartbeat{
-		Clients: clients,
+		Clients: network.ActiveClients(),
 		Files:   map[string]string{},
 	}
 	msg, err := json.Marshal(hb)
