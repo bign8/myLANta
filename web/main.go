@@ -1,23 +1,27 @@
-package main
+package web
 
-import "net/http"
+import (
+	"net/http"
 
-var files = map[string][]byte{}
+	"github.com/bign8/myLANta"
+)
 
-func main() {
-	println("Serving on ")
-
-	// listen to UDP requests and respond as necessary
-
-	panic(http.ListenAndServe(":8080", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("who needs internet anyway\n"))
-	})))
+func New(net *myLANta.Network) *Portal {
+	p := &Portal{
+		mux: http.NewServeMux(),
+		web: http.FileServer(http.Dir("web")),
+	}
+	p.mux.Handle("/", p.web)
+	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "TODO", http.StatusNotImplemented)
+	})
+	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "TODO", http.StatusNotImplemented)
+	})
+	return p
 }
 
-func handle(msg string) {
-	switch msg[0] {
-	case '?': // who is there and what files are you serving
-	case 'p': // list of peers
-	case 'f': // list of files
-	}
+type Portal struct {
+	mux *http.ServeMux
+	web http.Handler
 }

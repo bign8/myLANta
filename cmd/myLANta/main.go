@@ -3,12 +3,16 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/bign8/myLANta"
 )
+
+var portz = flag.String("PORT", "8080", "port to serve on")
 
 func main() {
 	exit := make(chan int, 10)
@@ -37,9 +41,14 @@ func main() {
 		}
 	}()
 
+	flag.Parse()
+	log.Println("Serving on :" + *portz)
+	go func() {
+		panic(http.ListenAndServe(":"+*portz, nil))
+	}()
+
 	buf := make([]byte, 1)
 	os.Stdin.Read(buf)
-	exit <- 1
-	exit <- 1
+	close(exit)
 	log.Printf("goodbye")
 }
