@@ -81,13 +81,18 @@ func runBroadcastListener(s *Network, exit chan int) {
 
 			result := decode(msg, length)
 			for _, a := range result.Data.Clients {
+				found := false
 				for _, c := range s.Connections {
 					if c.Addr == nil {
 						break
 					}
 					if c.Addr.String() == a {
-						s.connLookup[a] = s.addConn(a, nil)
+						found = true
+						break
 					}
+				}
+				if !found {
+					s.connLookup[a] = s.addConn(a, nil)
 				}
 			}
 		case msg := <-s.Outgoing:

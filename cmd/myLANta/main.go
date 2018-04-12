@@ -53,7 +53,7 @@ func main() {
 
 func sendHeartbeat(network *mylanta.Network) {
 	clients := []string{}
-	for _, c := range network.Connections {
+	for _, c := range network.Connections[1:] {
 		if c.Addr == nil {
 			break
 		}
