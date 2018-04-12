@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,12 +20,12 @@ func New(net *mylanta.Network) http.Handler {
 		net: net,
 		mem: map[string][]byte{},
 		loc: sync.RWMutex{},
+		tpl: template.Must(template.ParseFiles("web/index.html")),
 	}
-	p.mux.Handle("/", p.web)
+	p.mux.HandleFunc("/", p.root)
 	p.mux.HandleFunc("/add", p.add)
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
-	p.mux.HandleFunc("/list", p.list)
 	p.mux.HandleFunc("/peers", p.peers)
 	return p.mux
 }
@@ -36,12 +37,31 @@ type Portal struct {
 	net *mylanta.Network
 	mem map[string][]byte
 	loc sync.RWMutex
+	tpl *template.Template
 }
 
 func showErr(w http.ResponseWriter, msg string, err error) {
 	msg = msg + ": " + err.Error()
 	log.Println(msg)
 	http.Error(w, msg, http.StatusInternalServerError)
+}
+
+func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" {
+		p.tpl = template.Must(template.ParseFiles("web/index.html")) // TODO: remove on release
+		err := p.tpl.Execute(w, struct {
+			Peers []string
+			Files []string
+		}{
+			Peers: nil,
+			Files: p.list(),
+		})
+		if err != nil {
+			panic(err)
+		}
+		return
+	}
+	p.web.ServeHTTP(w, r)
 }
 
 func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +97,7 @@ func (p *Portal) del(w http.ResponseWriter, r *http.Request) {
 }
 
 // short term hack
-func (p *Portal) list(w http.ResponseWriter, r *http.Request) {
+func (p *Portal) list() []string {
 	p.loc.RLock()
 	names := make([]string, 0, len(p.mem))
 	for key := range p.mem {
@@ -85,10 +105,7 @@ func (p *Portal) list(w http.ResponseWriter, r *http.Request) {
 	}
 	p.loc.RUnlock()
 	sort.Strings(names)
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", " ")
-	enc.Encode(names)
+	return names
 }
 
 func (p *Portal) peers(w http.ResponseWriter, r *http.Request) {

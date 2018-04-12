@@ -16,19 +16,22 @@
     <div class="group">
       <h2>Files</h2>
       <ul class="list">
-        <li class="local">
+        <!-- <li class="local">
           <a href="/get?file=local.txt" class="link">local.txt</a>
           <a href="/del?file=local.txt" class="kill">&times;</a>
         </li>
         <li class="remote">
           <a href="/get?file=remote.txt" class="link">remote.txt</a>
           <a href="#" title="<insert peers here>" class="info">?</a>
+        </li> -->
+        {{- range .Files -}}
+        <li>
+          <a href="/get?file={{.}}">{{.}}</a>
         </li>
+        {{- end}}
       </ul>
 
       <!-- short term hack -->
-      <h2>Files</h2>
-      <iframe src="/list"></iframe>
       <h2>Peers</h2>
       <iframe src="/peers"></iframe>
     </div>
