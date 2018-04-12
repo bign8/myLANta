@@ -2,9 +2,36 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title></title>
+    <title>myLANta - offline lan party</title>
+    <link rel="stylesheet" href="/style.css">
   </head>
   <body>
+    <h1>myLANta - offline lan party</h1>
 
+    <form enctype="multipart/form-data" action="/add" method="post">
+      <!-- TODO: automagically upload file with single click -->
+      <input type="file" name="file" />
+      <input type="submit" value="Add" />
+    </form>
+
+    <div class="group">
+      <h2>Files</h2>
+      <ul class="list">
+        <li class="local">
+          <a href="/get?file=local.txt" class="link">local.txt</a>
+          <a href="/del?file=local.txt" class="kill">&times;</a>
+        </li>
+        <li class="remote">
+          <a href="/get?file=remote.txt" class="link">remote.txt</a>
+          <a href="#" title="<insert peers here>" class="info">?</a>
+        </li>
+      </ul>
+
+      <!-- short term hack -->
+      <iframe src="/list"></iframe>
+    </div>
+
+
+    <script src="/script.js"></script>
   </body>
 </html>
