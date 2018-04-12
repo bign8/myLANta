@@ -50,10 +50,10 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		p.tpl = template.Must(template.ParseFiles("web/index.html")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
-			Peers []string
+			Peers []mylanta.Client
 			Files []string
 		}{
-			Peers: nil,
+			Peers: p.net.ActiveClients(),
 			Files: p.list(),
 		})
 		if err != nil {
