@@ -8,10 +8,10 @@
   <body>
     <h1>myLANta - offline lan party</h1>
 
-    <form enctype="multipart/form-data" action="/add" method="post">
-      <!-- TODO: automagically upload file with single click -->
-      <input type="file" name="file" />
-      <input type="submit" value="Add" />
+    <form enctype="multipart/form-data" action="/add" method="post" id="upload">
+      <input type="button" value="Serve file to Group" id="add" />
+      <input type="file" name="file" id="file" style="display:none" />
+      <input type="submit" style="display:none" />
     </form>
 
     <div class="group">
@@ -28,7 +28,10 @@
       </ul>
 
       <!-- short term hack -->
+      <h2>Files</h2>
       <iframe src="/list"></iframe>
+      <h2>Peers</h2>
+      <iframe src="/peers"></iframe>
     </div>
 
 

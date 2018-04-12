@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sort"
 	"sync"
 
 	"github.com/bign8/myLANta/mylanta"
@@ -82,6 +83,7 @@ func (p *Portal) list(w http.ResponseWriter, r *http.Request) {
 		names = append(names, key)
 	}
 	p.loc.RUnlock()
+	sort.Strings(names)
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", " ")
