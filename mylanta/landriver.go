@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -22,7 +23,7 @@ type Network struct {
 	conn        *net.UDPConn
 	bconn       *net.UDPConn
 	Connections []Client
-	connLookup  map[string]int16
+	connLookup  *sync.Map
 	lastID      int32
 	Outgoing    chan *Message
 	myips       []string
@@ -54,7 +55,7 @@ func (n *Network) LenConns() int {
 func RunServer(exit chan int) *Network {
 	network := &Network{
 		Connections: make([]Client, maxClient), // max of int16
-		connLookup:  map[string]int16{},
+		connLookup:  &sync.Map{},
 		Outgoing:    make(chan *Message, 100),
 		lastID:      1,
 	}
@@ -90,7 +91,7 @@ func RunServer(exit chan int) *Network {
 		for _, addr := range addrs {
 			sliceaddr := strings.Split(addr.String(), "/")[0]
 			network.myips = append(network.myips, sliceaddr)
-			network.connLookup[sliceaddr+":"+network.mahport] = 1
+			network.connLookup.Store(sliceaddr+":"+network.mahport, int16(1))
 		}
 	}
 	log.Printf("My IPs: %s", network.myips)
@@ -131,7 +132,7 @@ func runBroadcastListener(s *Network, exit chan int) {
 					}
 				}
 				if !found {
-					s.connLookup[a] = s.addConn(a, nil)
+					s.connLookup.Store(a, s.addConn(a, nil))
 				}
 			}
 		case msg := <-s.Outgoing:
@@ -190,12 +191,11 @@ func (s *Network) addConn(addr string, ipaddr *net.UDPAddr) int16 {
 		raddr := maddr + ":" + s.mahport
 		if addr == raddr {
 			log.Printf("   Ignoring peer %s", addr)
-			s.connLookup[addr] = 1
 			return 1 // ignore my own messages
 		}
 	}
 	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
-	s.connLookup[addr] = int16(val)
+	s.connLookup.Store(addr, int16(val))
 	s.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true}
 	return int16(val)
 }
@@ -213,9 +213,12 @@ func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 		}
 		// Is this the fastest and simplest way to lookup unique connection?
 		addr := ipaddr.String()
-		connidx, ok := s.connLookup[addr]
+		var connidx int16
+		lv, ok := s.connLookup.Load(addr)
 		if !ok {
 			connidx = s.addConn(addr, ipaddr)
+		} else {
+			connidx = lv.(int16)
 		}
 		incoming <- &Message{
 			Raw:    buf[:n],
