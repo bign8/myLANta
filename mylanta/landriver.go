@@ -110,8 +110,10 @@ func runBroadcastListener(s *Network, exit chan int) {
 		timeout := time.After(time.Second * 15)
 		select {
 		case msg := <-incoming:
-			s.Connections[msg.Target].Alive = true
-			s.Connections[msg.Target].LastPing = time.Now()
+			con := s.Connections[msg.Target]
+			con.Alive = true
+			con.LastPing = time.Now()
+			s.Connections[msg.Target] = con
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
 			if length > 1500 {
 				panic("TOO BIG MSG")
@@ -164,7 +166,7 @@ func (s *Network) timeoutStale() {
 		if !c.Alive {
 			continue
 		}
-		if now.Sub(c.LastPing) > time.Second*15 {
+		if now.Sub(c.LastPing) > time.Second*30 {
 			log.Printf("   timed out: %#v", c)
 			c.Alive = false
 			s.Connections[i] = c
