@@ -32,7 +32,10 @@ type Network struct {
 func (n *Network) ActiveClients() []Client {
 	result := make([]Client, n.LenConns())
 	idx := 0
-	for _, c := range n.Connections {
+	for i, c := range n.Connections {
+		if i < 2 {
+			continue
+		}
 		if c.Alive {
 			result[idx] = c
 			idx++
@@ -104,6 +107,8 @@ func runBroadcastListener(s *Network, exit chan int) {
 		timeout := time.After(time.Second * 15)
 		select {
 		case msg := <-incoming:
+			s.Connections[msg.Target].Alive = true
+			s.Connections[msg.Target].LastPing = time.Now()
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
 			if length > 1500 {
 				panic("TOO BIG MSG")
@@ -137,26 +142,30 @@ func runBroadcastListener(s *Network, exit chan int) {
 			break
 		case <-timeout:
 		}
-		now := time.Now()
-		for i := range s.Connections {
-			if i < 2 {
-				continue
-			}
-			c := s.Connections[i]
-			if c.Addr == nil {
-				break
-			}
-			if !c.Alive {
-				continue
-			}
-			if now.Sub(c.LastPing) > time.Second*15 {
-				log.Printf("   timed out: %#v", c)
-				s.Connections[i].Alive = false
-			}
-		}
+		s.timeoutStale()
 	}
 	fmt.Println("Killing Socket Server")
 	s.conn.Close()
+}
+
+func (s *Network) timeoutStale() {
+	now := time.Now()
+	for i := range s.Connections {
+		if i < 2 {
+			continue
+		}
+		c := s.Connections[i]
+		if c.Addr == nil {
+			break
+		}
+		if !c.Alive {
+			continue
+		}
+		if now.Sub(c.LastPing) > time.Second*15 {
+			log.Printf("   timed out: %#v", c)
+			s.Connections[i].Alive = false
+		}
+	}
 }
 
 func (s *Network) addConn(addr string, ipaddr *net.UDPAddr) int16 {
