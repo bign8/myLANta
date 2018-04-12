@@ -1,5 +1,3 @@
-console.log("script loaded");
-
 function ready(fn) {
   if (document.attachEvent ? document.readyState === "complete" : document.readyState !== "loading"){
     fn();
@@ -9,12 +7,17 @@ function ready(fn) {
 }
 
 ready(function() {
-  // document.forms[0].querySelector("[type=button]")
-  var file = document.getElementById("file");
-  document.getElementById("add").onclick = function() {
-    file.click();
-  };
-  file.onchange = function(e) {
-    file.parentNode.submit();
-  };
+  var form = document.forms[0],
+    save = form.querySelector("[type=submit]"),
+    file = form.querySelector("[type=file]"),
+    best = document.createElement('input');
+
+  best.type = 'button';
+  best.value = save.value;
+  file.style.display = 'none';
+  save.style.display = 'none';
+
+  form.appendChild(best);
+  best.onclick = function(e) { file.click(e); };
+  file.onchange = function(e) { form.submit(e); };
 });
