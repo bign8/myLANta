@@ -33,7 +33,7 @@ func main() {
 	go func() {
 		for {
 			sendHeartbeat(network)
-			time.Sleep(time.Second * 10)
+			time.Sleep(time.Second * 5)
 		}
 	}()
 

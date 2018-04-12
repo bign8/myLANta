@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -24,6 +25,8 @@ type Network struct {
 	connLookup  map[string]int16
 	lastID      int32
 	Outgoing    chan *Message
+	myips       []string
+	mahport     string
 }
 
 func (n *Network) ActiveClients() []Client {
@@ -50,14 +53,14 @@ func RunServer(exit chan int) *Network {
 		lastID:      1,
 	}
 	rand.Seed(time.Now().Unix())
-	castport := strconv.Itoa(rand.Intn(65535-49152) + 49152) //49152 to 65535
+	network.mahport = strconv.Itoa(rand.Intn(65535-49152) + 49152) //49152 to 65535
 
 	var err error
 	network.Connections[0].Addr, err = net.ResolveUDPAddr("udp", discoveryAddr)
 	if err != nil {
 		panic(err)
 	}
-	network.Connections[1].Addr, err = net.ResolveUDPAddr("udp", ":"+castport)
+	network.Connections[1].Addr, err = net.ResolveUDPAddr("udp", ":"+network.mahport)
 	if err != nil {
 		panic(err)
 	}
@@ -69,6 +72,22 @@ func RunServer(exit chan int) *Network {
 	if err != nil {
 		panic(err)
 	}
+	itfs, err := net.Interfaces()
+	if err != nil {
+		panic("cant get the IPs")
+	}
+	for _, itf := range itfs {
+		addrs, err := itf.Addrs()
+		if err != nil {
+			panic("cant get the IPs")
+		}
+		for _, addr := range addrs {
+			sliceaddr := strings.Split(addr.String(), "/")[0]
+			network.myips = append(network.myips, sliceaddr)
+			network.connLookup[sliceaddr+":"+network.mahport] = 1
+		}
+	}
+	log.Printf("My IPs: %s", network.myips)
 	log.Printf("I am %s", network.Connections[1].Addr.String())
 	go runBroadcastListener(network, exit)
 	return network
@@ -82,6 +101,7 @@ func runBroadcastListener(s *Network, exit chan int) {
 
 	alive := true
 	for alive {
+		timeout := time.After(time.Second * 15)
 		select {
 		case msg := <-incoming:
 			length := binary.LittleEndian.Uint16(msg.Raw[:2])
@@ -115,6 +135,24 @@ func runBroadcastListener(s *Network, exit chan int) {
 		case <-exit:
 			alive = false
 			break
+		case <-timeout:
+		}
+		now := time.Now()
+		for i := range s.Connections {
+			if i < 2 {
+				continue
+			}
+			c := s.Connections[i]
+			if c.Addr == nil {
+				break
+			}
+			if !c.Alive {
+				continue
+			}
+			if now.Sub(c.LastPing) > time.Second*15 {
+				log.Printf("   timed out: %#v", c)
+				s.Connections[i].Alive = false
+			}
 		}
 	}
 	fmt.Println("Killing Socket Server")
@@ -131,6 +169,14 @@ func (s *Network) addConn(addr string, ipaddr *net.UDPAddr) int16 {
 		ipaddr, err = net.ResolveUDPAddr("udp", addr)
 		if err != nil {
 			panic("bad client addr")
+		}
+	}
+	for _, maddr := range s.myips {
+		raddr := maddr + ":" + s.mahport
+		if addr == raddr {
+			log.Printf("   Ignoring peer %s", addr)
+			s.connLookup[addr] = 1
+			return 1 // ignore my own messages
 		}
 	}
 	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
@@ -150,12 +196,8 @@ func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 		if n == 0 {
 			continue
 		}
-		if ipaddr.Port == me {
-			continue // ignore my own messages
-		}
 		// Is this the fastest and simplest way to lookup unique connection?
 		addr := ipaddr.String()
-		log.Printf("Incoming from %s", addr)
 		connidx, ok := s.connLookup[addr]
 		if !ok {
 			connidx = s.addConn(addr, ipaddr)
@@ -168,9 +210,10 @@ func (s *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 }
 
 type Client struct {
-	Addr  *net.UDPAddr
-	ID    int16
-	Alive bool
+	Addr     *net.UDPAddr
+	ID       int16
+	Alive    bool
+	LastPing time.Time
 }
 
 type Message struct {

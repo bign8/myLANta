@@ -90,6 +90,9 @@ func (p *Portal) list(w http.ResponseWriter, r *http.Request) {
 	enc.SetIndent("", " ")
 	enc.Encode(names)
 }
+
 func (p *Portal) peers(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "TODO", http.StatusNotImplemented)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", " ")
+	enc.Encode(p.net.ActiveClients())
 }
