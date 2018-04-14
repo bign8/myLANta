@@ -182,7 +182,6 @@ func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 		if connidx == 1 {
 			continue // ignore my own messages
 		}
-		log.Printf("   msg contents: %#v", buf[:m])
 		incoming <- &Message{
 			Kind:   MsgKind(buf[0]),
 			Raw:    buf[:m],
@@ -275,6 +274,8 @@ func runBroadcastListener(n *Network, exit chan int) {
 	// go n.listen(n.conn, incoming) // no need for this listener until we want direct messaging
 	go n.listen(n.bconn, incoming)
 
+	n.SendPing() // once the listener is running, send a ping out.
+
 	alive := true
 	for alive {
 		timeout := time.After(time.Second * 15)
@@ -283,6 +284,7 @@ func runBroadcastListener(n *Network, exit chan int) {
 			con := n.connections[msg.Target]
 			con.Alive = true
 			con.LastPing = time.Now()
+			n.connections[msg.Target] = con
 
 			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
 			if length > 1500 {
