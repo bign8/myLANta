@@ -2,7 +2,6 @@ package net
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -10,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -23,17 +21,26 @@ const maxClient = 1 << 16
 type Network struct {
 	conn        *net.UDPConn
 	bconn       *net.UDPConn
-	Connections []Client
-	connLookup  *sync.Map
+	Connections []Peer
+	connLookup  map[string]int16 // only used by the 'listen' goroutine
 	lastID      int32
 	Outgoing    chan *Message
 	myips       []string
 	mahport     string
 }
 
+// Client is all the metadata for a peer.
+type Peer struct {
+	Addr     *net.UDPAddr
+	ID       int16 `js:"-"`
+	Alive    bool  `js:"-"`
+	LastPing time.Time
+	Name     string
+}
+
 // Clients gives the active clients list
-func (n *Network) Clients() []Client {
-	result := make([]Client, 0, int(atomic.LoadInt32(&n.lastID))+1)
+func (n *Network) Clients() []Peer {
+	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
 	for _, c := range n.Connections[1:] {
 		if c.Addr != nil && c.Alive {
 			result = append(result, c)
@@ -45,8 +52,8 @@ func (n *Network) Clients() []Client {
 // New creates a new network.
 func New(exit chan int) *Network {
 	network := &Network{
-		Connections: make([]Client, maxClient), // max of int16
-		connLookup:  &sync.Map{},
+		Connections: make([]Peer, maxClient), // max of int16
+		connLookup:  map[string]int16{},
 		Outgoing:    make(chan *Message, 100),
 		lastID:      1,
 	}
@@ -87,20 +94,36 @@ func New(exit chan int) *Network {
 		for _, addr := range addrs {
 			sliceaddr := strings.Split(addr.String(), "/")[0]
 			network.myips = append(network.myips, sliceaddr)
-			network.connLookup.Store(sliceaddr+":"+network.mahport, int16(1))
+			network.connLookup[sliceaddr+":"+network.mahport] = 1
 		}
 	}
 	log.Printf("My IPs: %s", network.myips)
 	log.Printf("I am %s", network.Connections[1].Addr.String())
 	go runBroadcastListener(network, exit)
+	go heartbeater(network, exit)
 	return network
+}
+
+func heartbeater(n *Network, exit chan int) {
+	for {
+		timer := time.After(time.Second * 10)
+		select {
+		case <-timer:
+			n.SendPing()
+		case _, ok := <-exit:
+			if ok {
+				panic("why did we get OK from closed exit")
+			}
+			return
+		}
+	}
 }
 
 func runBroadcastListener(n *Network, exit chan int) {
 	log.Printf("Online.")
 	incoming := make(chan *Message, 100)
-	go n.listen(n.conn, n.Connections[1].Addr.Port, incoming)
-	go n.listen(n.bconn, n.Connections[1].Addr.Port, incoming)
+	go n.listen(n.conn, incoming)
+	go n.listen(n.bconn, incoming)
 
 	alive := true
 	for alive {
@@ -110,12 +133,21 @@ func runBroadcastListener(n *Network, exit chan int) {
 			con := n.Connections[msg.Target]
 			con.Alive = true
 			con.LastPing = time.Now()
-			n.Connections[msg.Target] = con
-			length := binary.LittleEndian.Uint16(msg.Raw[:2])
+			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
 			if length > 1500 {
 				panic("TOO BIG MSG")
 			}
-			n.processPeers(decode(msg, length))
+			log.Printf("New message from: %#v", con.Addr)
+			switch msg.Kind {
+			case MsgKindPing:
+				n.SendHeartbeat()
+			case MsgKindHeartbeat:
+				// nothing to do i guess
+			case MsgKindChat:
+				chat := decodeChat(msg)
+				log.Printf("Got Chat: %s", chat.Text)
+			case MsgKindFiles:
+			}
 		case msg := <-n.Outgoing:
 			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
 				break // can't find this user
@@ -135,20 +167,6 @@ func runBroadcastListener(n *Network, exit chan int) {
 	n.conn.Close()
 }
 
-func (n *Network) processPeers(result *Message) {
-	for idx, peer := range result.Data.Clients {
-		if idx == 0 {
-			// hax, i know the first user is the person who sent it...
-			n.Connections[result.Target].Name = peer.Name
-			continue
-		}
-		if _, ok := n.connLookup.Load(peer.Addr.String()); !ok {
-			n.connLookup.Store(peer.Addr.String(), n.addConn(peer.Name, peer.Addr.String(), nil))
-		}
-	}
-
-}
-
 func (n *Network) timeoutStale() {
 	now := time.Now()
 	for i := range n.Connections {
@@ -162,7 +180,7 @@ func (n *Network) timeoutStale() {
 		if !c.Alive {
 			continue
 		}
-		if now.Sub(c.LastPing) > time.Second*30 {
+		if now.Sub(c.LastPing) > time.Second*35 {
 			log.Printf("   timed out: %#v", c)
 			c.Alive = false
 			n.Connections[i] = c
@@ -170,6 +188,8 @@ func (n *Network) timeoutStale() {
 	}
 }
 
+// addConn will add a connection to the connections map and slice.
+// since this function touches connLookup only use in listen goroutine.
 func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
 	val := atomic.AddInt32(&n.lastID, 1)
 	if val > maxClient {
@@ -182,20 +202,13 @@ func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
 			panic("bad client addr")
 		}
 	}
-	for _, maddr := range n.myips {
-		raddr := maddr + ":" + n.mahport
-		if addr == raddr {
-			log.Printf("   Ignoring peer %s", addr)
-			return 1 // ignore my own messages
-		}
-	}
 	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
-	n.connLookup.Store(addr, int16(val))
-	n.Connections[val] = Client{Addr: ipaddr, ID: int16(val), Alive: true, Name: name}
+	n.connLookup[addr] = int16(val)
+	n.Connections[val] = Peer{Addr: ipaddr, ID: int16(val), Alive: true, Name: name, LastPing: time.Now()}
 	return int16(val)
 }
 
-func (n *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
+func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 	buf := make([]byte, 2048)
 	for {
 		m, ipaddr, err := conn.ReadFromUDP(buf)
@@ -208,52 +221,62 @@ func (n *Network) listen(conn *net.UDPConn, me int, incoming chan *Message) {
 		}
 		// Is this the fastest and simplest way to lookup unique connection?
 		addr := ipaddr.String()
-		var connidx int16
-		lv, ok := n.connLookup.Load(addr)
+		connidx, ok := n.connLookup[addr]
+
 		if !ok {
+			shouldProcess := true // default to processing the message
+			// Check to see if this is my IP address
+			for _, maddr := range n.myips {
+				raddr := maddr + ":" + n.mahport
+				if addr == raddr {
+					log.Printf("   Ignoring peer %s", addr)
+					n.connLookup[addr] = 1 // Force this IP to link to my own local address
+					shouldProcess = false  // dont process my own messages
+					break
+				}
+			}
+			if !shouldProcess {
+				continue // skip to next network message
+			}
 			connidx = n.addConn("", addr, ipaddr)
-		} else {
-			connidx = lv.(int16)
 		}
+		if connidx == 1 {
+			continue // ignore my own messages
+		}
+		log.Printf("   msg contents: %#v", buf[:m])
 		incoming <- &Message{
+			Kind:   MsgKind(buf[0]),
 			Raw:    buf[:m],
 			Target: connidx,
 		}
 	}
 }
 
-// Client is all the metadata for a client.
-type Client struct {
-	Addr     *net.UDPAddr
-	ID       int16 `js:"-"`
-	Alive    bool  `js:"-"`
-	LastPing time.Time
-	Name     string
-}
-
-// Message containing the messaging.
-type Message struct {
-	Raw    []byte
-	Target int16
-	Data   Heartbeat
-}
-
-func decode(m *Message, length uint16) *Message {
-	dcd := &Message{
-		Raw:    m.Raw,
-		Target: m.Target,
+func (n *Network) SendChat(msg string) {
+	bytes := []byte{byte(MsgKindChat), 0, 0}
+	binary.LittleEndian.PutUint16(bytes[1:], uint16(len(msg)))
+	bytes = append(bytes, []byte(msg)...)
+	n.Outgoing <- &Message{
+		Target: 0, // broadcast index
+		Kind:   MsgKindChat,
+		Raw:    bytes,
 	}
-	hb := Heartbeat{}
-	lol := json.Unmarshal(m.Raw[2:], &hb)
-	if lol != nil {
-		panic(lol)
-	}
-	dcd.Data = hb
-	return dcd
 }
 
-// Heartbeat information.
-type Heartbeat struct {
-	Clients []Client
-	Files   map[string]string // map of file name to md5
+func (n *Network) SendPing() {
+	bytes := []byte{byte(MsgKindPing), 0, 0} // ping doesnt have any data
+	n.Outgoing <- &Message{
+		Target: 0, // broadcast index
+		Kind:   MsgKindPing,
+		Raw:    bytes,
+	}
+}
+
+func (n *Network) SendHeartbeat() {
+	bytes := []byte{byte(MsgKindHeartbeat), 0, 0} // hb doesnt have any data
+	n.Outgoing <- &Message{
+		Target: 0, // broadcast index
+		Kind:   MsgKindHeartbeat,
+		Raw:    bytes,
+	}
 }

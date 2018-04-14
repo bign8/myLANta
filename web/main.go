@@ -48,7 +48,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		p.tpl = template.Must(template.ParseFiles("web/index.html")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
-			Peers []net.Client
+			Peers []net.Peer
 			Files []string
 		}{
 			Peers: p.net.Clients(),

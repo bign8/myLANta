@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/binary"
-	"encoding/json"
+	"bufio"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/bign8/myLANta/net"
 	"github.com/bign8/myLANta/web"
@@ -31,26 +29,25 @@ func main() {
 	signal.Notify(cancel, os.Interrupt)
 
 	go func() {
-		for {
-			sendHeartbeat(network)
-			time.Sleep(time.Second * 5)
-		}
-	}()
+		buf := bufio.NewReader(os.Stdin)
 
-	go func() {
-		buf := make([]byte, 1)
 		for {
-			n, err := os.Stdin.Read(buf)
+			line, _, err := buf.ReadLine()
 			if err != nil {
 				panic("stdin blew up: " + err.Error())
 			}
-			if n == 1 {
-				switch buf[0] {
-				case 'h':
-					sendHeartbeat(network)
-				case 'c':
-					log.Printf("Current Clients: %#v", network.Clients())
-				}
+			if len(line) == 0 {
+				continue
+			}
+			switch line[0] {
+			case 'c':
+				network.SendChat(string(line[2:]))
+			case 'h': // h = heartbeat
+				network.SendHeartbeat()
+			case 'p': // p = ping
+				network.SendPing()
+			case 'l': // l = list
+				log.Printf("Current Clients: %#v", network.Clients())
 			}
 		}
 	}()
@@ -59,22 +56,4 @@ func main() {
 	close(exit)
 
 	log.Printf("goodbye")
-}
-
-func sendHeartbeat(network *net.Network) {
-	hb := net.Heartbeat{
-		Clients: network.Clients(),
-		Files:   map[string]string{},
-	}
-	msg, err := json.Marshal(hb)
-	if err != nil {
-		log.Printf("this aint working out.")
-		panic(err)
-	}
-	bytes := []byte{0, 0}
-	binary.LittleEndian.PutUint16(bytes, uint16(len(msg)))
-	network.Outgoing <- &net.Message{
-		Target: 0,
-		Raw:    append(bytes, msg...),
-	}
 }
