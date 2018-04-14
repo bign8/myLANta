@@ -2,6 +2,7 @@ package net
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -19,17 +20,20 @@ const maxClient = 1 << 16
 
 // Network is a udp network manager.
 type Network struct {
-	conn        *net.UDPConn
-	bconn       *net.UDPConn
-	Connections []Peer
+	conn        *net.UDPConn     // my udp conn
+	bconn       *net.UDPConn     // multicast listening conn
 	connLookup  map[string]int16 // only used by the 'listen' goroutine
-	lastID      int32
-	Outgoing    chan *Message
-	myips       []string
-	mahport     string
+	connections []Peer           // list of all connections. fixed in length so we dont gotta worry about reallocating across goroutines
+	lastID      int32            // used to allocate ID for remote user
+	myips       []string         // list of my IPs to filter incoming messages
+	mahport     string           // port this network is running on
+
+	// Public Interface to Network
+	Outgoing chan *Message // controller writes to this channel to send (or just call Network.SendXXX)
+	Incoming chan *Message // Messages sent to this will be re-emitted for consumption by controller
 }
 
-// Client is all the metadata for a peer.
+// Peer is all the metadata for a peer.
 type Peer struct {
 	Addr     *net.UDPAddr
 	ID       int16 `js:"-"`
@@ -41,7 +45,7 @@ type Peer struct {
 // Clients gives the active clients list
 func (n *Network) Clients() []Peer {
 	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
-	for _, c := range n.Connections[1:] {
+	for _, c := range n.connections[1:] {
 		if c.Addr != nil && c.Alive {
 			result = append(result, c)
 		}
@@ -52,7 +56,7 @@ func (n *Network) Clients() []Peer {
 // New creates a new network.
 func New(exit chan int) *Network {
 	network := &Network{
-		Connections: make([]Peer, maxClient), // max of int16
+		connections: make([]Peer, maxClient), // max of int16
 		connLookup:  map[string]int16{},
 		Outgoing:    make(chan *Message, 100),
 		lastID:      1,
@@ -61,24 +65,24 @@ func New(exit chan int) *Network {
 	network.mahport = strconv.Itoa(rand.Intn(65535-49152) + 49152) //49152 to 65535
 
 	var err error
-	network.Connections[0].Addr, err = net.ResolveUDPAddr("udp", discoveryAddr)
+	network.connections[0].Addr, err = net.ResolveUDPAddr("udp", discoveryAddr)
 	if err != nil {
 		panic(err)
 	}
-	network.Connections[1].Addr, err = net.ResolveUDPAddr("udp", ":"+network.mahport)
+	network.connections[1].Addr, err = net.ResolveUDPAddr("udp", ":"+network.mahport)
 	if err != nil {
 		panic(err)
 	}
-	network.Connections[1].Name, err = os.Hostname()
+	network.connections[1].Name, err = os.Hostname()
 	if err != nil {
-		network.Connections[1].Name = err.Error()
+		network.connections[1].Name = err.Error()
 	}
-	network.Connections[1].ID = 1
-	network.conn, err = net.ListenUDP("udp", network.Connections[1].Addr)
+	network.connections[1].ID = 1
+	network.conn, err = net.ListenUDP("udp", network.connections[1].Addr)
 	if err != nil {
 		panic(err)
 	}
-	network.bconn, err = net.ListenMulticastUDP("udp", nil, network.Connections[0].Addr)
+	network.bconn, err = net.ListenMulticastUDP("udp", nil, network.connections[0].Addr)
 	if err != nil {
 		panic(err)
 	}
@@ -98,7 +102,7 @@ func New(exit chan int) *Network {
 		}
 	}
 	log.Printf("My IPs: %s", network.myips)
-	log.Printf("I am %s", network.Connections[1].Addr.String())
+	log.Printf("I am %s", network.connections[1].Addr.String())
 	go runBroadcastListener(network, exit)
 	go heartbeater(network, exit)
 	return network
@@ -130,7 +134,7 @@ func runBroadcastListener(n *Network, exit chan int) {
 		timeout := time.After(time.Second * 15)
 		select {
 		case msg := <-incoming:
-			con := n.Connections[msg.Target]
+			con := n.connections[msg.Target]
 			con.Alive = true
 			con.LastPing = time.Now()
 			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
@@ -152,7 +156,7 @@ func runBroadcastListener(n *Network, exit chan int) {
 			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
 				break // can't find this user
 			}
-			addr := n.Connections[msg.Target].Addr
+			addr := n.connections[msg.Target].Addr
 			if n, err := n.conn.WriteToUDP(msg.Raw, addr); err != nil {
 				fmt.Println("Error: ", err, " Bytes Written: ", n)
 			}
@@ -169,11 +173,11 @@ func runBroadcastListener(n *Network, exit chan int) {
 
 func (n *Network) timeoutStale() {
 	now := time.Now()
-	for i := range n.Connections {
+	for i := range n.connections {
 		if i < 2 {
 			continue
 		}
-		c := n.Connections[i]
+		c := n.connections[i]
 		if c.Addr == nil {
 			break
 		}
@@ -183,7 +187,7 @@ func (n *Network) timeoutStale() {
 		if now.Sub(c.LastPing) > time.Second*35 {
 			log.Printf("   timed out: %#v", c)
 			c.Alive = false
-			n.Connections[i] = c
+			n.connections[i] = c
 		}
 	}
 }
@@ -204,7 +208,7 @@ func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
 	}
 	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
 	n.connLookup[addr] = int16(val)
-	n.Connections[val] = Peer{Addr: ipaddr, ID: int16(val), Alive: true, Name: name, LastPing: time.Now()}
+	n.connections[val] = Peer{Addr: ipaddr, ID: int16(val), Alive: true, Name: name, LastPing: time.Now()}
 	return int16(val)
 }
 
@@ -249,6 +253,22 @@ func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 			Raw:    buf[:m],
 			Target: connidx,
 		}
+	}
+}
+
+func (n *Network) SendFileList(fl *FileList) {
+	bytes := []byte{byte(MsgKindFiles), 0, 0}
+	data, err := json.Marshal(fl.Files)
+	if err != nil {
+		log.Printf("failed to encode file list to send")
+		panic(err)
+	}
+	binary.LittleEndian.PutUint16(bytes[1:], uint16(len(data)))
+	bytes = append(bytes, data...)
+	n.Outgoing <- &Message{
+		Target: 0, // broadcast index
+		Kind:   MsgKindChat,
+		Raw:    bytes,
 	}
 }
 

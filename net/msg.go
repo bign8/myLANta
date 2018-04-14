@@ -1,6 +1,9 @@
 package net
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"encoding/json"
+)
 
 // Message containing the messaging.
 type Message struct {
@@ -36,6 +39,15 @@ func decodeChat(m *Message) Chat {
 
 type FileList struct {
 	Files map[string]string // map of file name to md5
+}
+
+func decodeFileList(m *Message) FileList {
+	fl := FileList{}
+	lol := json.Unmarshal(m.Raw[3:], &fl)
+	if lol != nil {
+		panic(lol)
+	}
+	return fl
 }
 
 // Heartbeat information.
