@@ -105,7 +105,7 @@ func New(exit chan int) *Network {
 // currently mutates the connections list which I don't like.
 func (n *Network) timeoutStale() {
 	now := time.Now()
-	for i := range n.connections {
+	for i := range n.connections[2:] {
 		if i < 2 {
 			continue
 		}
@@ -195,7 +195,7 @@ func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 // Peers gives the active peers list
 func (n *Network) Peers() []Peer {
 	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
-	for _, c := range n.connections[1:] {
+	for _, c := range n.connections[2:] {
 		if c.Addr != nil && c.Alive {
 			result = append(result, c)
 		}
