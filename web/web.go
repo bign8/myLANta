@@ -1,30 +1,36 @@
 package web
 
 import (
+	"fmt"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/bign8/myLANta/net"
 )
 
 // New constructs a new web portan handler.
-func New(net *net.Network) http.Handler {
+func New(n *net.Network) http.Handler {
 	p := &Portal{
 		mux: http.NewServeMux(),
-		web: http.FileServer(http.Dir("web")),
-		net: net,
+		web: http.FileServer(http.Dir("dist")),
+		net: n,
 		mem: map[string][]byte{},
+		all: &net.FileList{
+			Files: make(map[string]string),
+		},
 		loc: sync.RWMutex{},
-		tpl: template.Must(template.ParseFiles("web/index.html")),
+		tpl: template.Must(template.ParseFiles("web/index.gohtml")),
 	}
 	p.mux.HandleFunc("/", p.root)
 	p.mux.HandleFunc("/add", p.add)
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
+	p.mux.HandleFunc("/msg", p.msg)
 	return p.mux
 }
 
@@ -34,6 +40,7 @@ type Portal struct {
 	web http.Handler
 	net *net.Network
 	mem map[string][]byte
+	all *net.FileList
 	loc sync.RWMutex
 	tpl *template.Template
 }
@@ -46,7 +53,7 @@ func showErr(w http.ResponseWriter, msg string, err error) {
 
 func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
-		p.tpl = template.Must(template.ParseFiles("web/index.html")) // TODO: remove on release
+		p.tpl = template.Must(template.ParseFiles("web/index.gohtml")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
 			Peers []net.Peer
 			Files []string
@@ -63,6 +70,10 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		return
+	}
 	r.ParseMultipartForm(32 << 20)
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -81,7 +92,11 @@ func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
 	// Store the data in memory of the server.
 	p.loc.Lock()
 	p.mem[handler.Filename] = bits
+	p.all.Files[handler.Filename] = "todo"
+	p.net.SendFileList(p.all)
 	p.loc.Unlock()
+
+	// Update client
 	log.Printf("Loaded %q.\n", handler.Filename)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -114,4 +129,22 @@ func (p *Portal) list() []string {
 	p.loc.RUnlock()
 	sort.Strings(names)
 	return names
+}
+
+func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "text/html")
+
+	// Long pull http response of remaining content
+	if f, ok := w.(http.Flusher); ok {
+		ticker := time.NewTicker(time.Second)
+		var err error
+		for i := 0; err == nil; i++ {
+			if _, err = fmt.Fprintf(w, `<span>%d</span><br/>`+"\n", i); err == nil { // style="display:none"
+				f.Flush()
+				<-ticker.C
+			}
+		}
+		ticker.Stop()
+		log.Printf("client socket closed")
+	}
 }

@@ -43,7 +43,7 @@ type FileList struct {
 
 func DecodeFileList(m *Message) FileList {
 	fl := FileList{}
-	lol := json.Unmarshal(m.Raw[3:], &fl)
+	lol := json.Unmarshal(m.Raw[3:], &fl.Files)
 	if lol != nil {
 		panic(lol)
 	}

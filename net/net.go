@@ -270,7 +270,7 @@ func heartbeater(n *Network, exit chan int) {
 // runBroadcastListener will loop over messages from the network and decide what to do with them.
 // This will fire of a 'listen' goroutine for the multicast network connection.
 func runBroadcastListener(n *Network, exit chan int) {
-	log.Printf("Online.")
+	// log.Printf("Online.")
 	incoming := make(chan *Message, 100)
 	// go n.listen(n.conn, incoming) // no need for this listener until we want direct messaging
 	go n.listen(n.bconn, incoming)

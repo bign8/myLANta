@@ -16,7 +16,6 @@ var portz = flag.String("port", "9696", "port to serve on")
 
 func main() {
 	exit := make(chan int, 10)
-	log.Printf("Launching Server.")
 	network := net.New(exit)
 
 	flag.Parse()
@@ -49,9 +48,10 @@ func networkController(n *net.Network) {
 		case net.MsgKindChat:
 			// I dont like this.. maybe we should make a channel for each message type instead of a single one.
 			chat := net.DecodeChat(msg)
-			log.Printf("Got Chat: %s", chat.Text)
+			log.Printf("Got Chat: %q", chat.Text)
 		case net.MsgKindFiles:
 			fl := net.DecodeFileList(msg)
+			// TODO: set on web
 			log.Printf("Got Files: %#v", fl.Files)
 		}
 	}

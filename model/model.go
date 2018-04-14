@@ -3,18 +3,18 @@ package model
 // State gives the list of files.
 type State interface {
 
-	// Conns gives the list of client connections (not sure if we need this).
-	Conns() []string
+	// Peers gives the list of peers within the network.
+	Peers() map[string]string // hash -> name
 
-	// Files gives the list of actively hosted files.
-	Files() map[string]string // Filename to MD5
+	// Files gives the list of actively hosted files (sorted alphabetically).
+	Files() map[string]string // hash -> name
 
 	// Fetch a particular file based on MD5 hash.
-	Fetch(name string) (byte, error)
+	Fetch(hash string) ([]byte, error)
 
 	// Serve adds a particular file listing to the list.
 	Serve(name string, bits []byte) error
 
-	// Title sets the name of a person (returns value if name parameter is empty).
+	// Title gives the name of a person (assigns a new name iff not empty).
 	Title(name string) string
 }
