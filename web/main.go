@@ -51,7 +51,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 			Peers []net.Peer
 			Files []string
 		}{
-			Peers: p.net.Clients(),
+			Peers: p.net.Peers(),
 			Files: p.list(),
 		})
 		if err != nil {

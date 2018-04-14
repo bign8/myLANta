@@ -27,7 +27,7 @@ type Chat struct {
 	Text string
 }
 
-func decodeChat(m *Message) Chat {
+func DecodeChat(m *Message) Chat {
 	length := binary.LittleEndian.Uint16(m.Raw[1:3])
 	if length > 1500 {
 		panic("TOO BIG MSG")
@@ -41,7 +41,7 @@ type FileList struct {
 	Files map[string]string // map of file name to md5
 }
 
-func decodeFileList(m *Message) FileList {
+func DecodeFileList(m *Message) FileList {
 	fl := FileList{}
 	lol := json.Unmarshal(m.Raw[3:], &fl)
 	if lol != nil {

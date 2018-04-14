@@ -19,6 +19,7 @@ var discoveryAddr = "239.1.12.123:9999"
 const maxClient = 1 << 16
 
 // Network is a udp network manager.
+// TODO: rename this, possibly 'net.Interface' or 'net.Conn' not sure yet. 'net.Manager' is such a generic name... but maybe it works here.
 type Network struct {
 	conn        *net.UDPConn     // my udp conn
 	bconn       *net.UDPConn     // multicast listening conn
@@ -42,22 +43,12 @@ type Peer struct {
 	Name     string
 }
 
-// Clients gives the active clients list
-func (n *Network) Clients() []Peer {
-	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
-	for _, c := range n.connections[1:] {
-		if c.Addr != nil && c.Alive {
-			result = append(result, c)
-		}
-	}
-	return result
-}
-
 // New creates a new network.
 func New(exit chan int) *Network {
 	network := &Network{
 		connections: make([]Peer, maxClient), // max of int16
 		connLookup:  map[string]int16{},
+		Incoming:    make(chan *Message, 100),
 		Outgoing:    make(chan *Message, 100),
 		lastID:      1,
 	}
@@ -108,69 +99,10 @@ func New(exit chan int) *Network {
 	return network
 }
 
-func heartbeater(n *Network, exit chan int) {
-	for {
-		timer := time.After(time.Second * 10)
-		select {
-		case <-timer:
-			n.SendPing()
-		case _, ok := <-exit:
-			if ok {
-				panic("why did we get OK from closed exit")
-			}
-			return
-		}
-	}
-}
-
-func runBroadcastListener(n *Network, exit chan int) {
-	log.Printf("Online.")
-	incoming := make(chan *Message, 100)
-	go n.listen(n.conn, incoming)
-	go n.listen(n.bconn, incoming)
-
-	alive := true
-	for alive {
-		timeout := time.After(time.Second * 15)
-		select {
-		case msg := <-incoming:
-			con := n.connections[msg.Target]
-			con.Alive = true
-			con.LastPing = time.Now()
-			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
-			if length > 1500 {
-				panic("TOO BIG MSG")
-			}
-			log.Printf("New message from: %#v", con.Addr)
-			switch msg.Kind {
-			case MsgKindPing:
-				n.SendHeartbeat()
-			case MsgKindHeartbeat:
-				// nothing to do i guess
-			case MsgKindChat:
-				chat := decodeChat(msg)
-				log.Printf("Got Chat: %s", chat.Text)
-			case MsgKindFiles:
-			}
-		case msg := <-n.Outgoing:
-			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
-				break // can't find this user
-			}
-			addr := n.connections[msg.Target].Addr
-			if n, err := n.conn.WriteToUDP(msg.Raw, addr); err != nil {
-				fmt.Println("Error: ", err, " Bytes Written: ", n)
-			}
-		case <-exit:
-			alive = false
-			break
-		case <-timeout:
-		}
-		n.timeoutStale()
-	}
-	fmt.Println("Killing Socket Server")
-	n.conn.Close()
-}
-
+// timeoutStale iterates all connections finding
+// stale connections. Sets alive=false
+// called by runBroadcastListener every 15 seconds
+// currently mutates the connections list which I don't like.
 func (n *Network) timeoutStale() {
 	now := time.Now()
 	for i := range n.connections {
@@ -212,6 +144,9 @@ func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
 	return int16(val)
 }
 
+// listen will listen to the given conn.
+// compares messages against the list of its own IP addresses to filter messages from
+// this client.
 func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 	buf := make([]byte, 2048)
 	for {
@@ -254,6 +189,19 @@ func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
 			Target: connidx,
 		}
 	}
+}
+
+// Network Public Functions
+
+// Peers gives the active peers list
+func (n *Network) Peers() []Peer {
+	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
+	for _, c := range n.connections[1:] {
+		if c.Addr != nil && c.Alive {
+			result = append(result, c)
+		}
+	}
+	return result
 }
 
 func (n *Network) SendFileList(fl *FileList) {
@@ -299,4 +247,64 @@ func (n *Network) SendHeartbeat() {
 		Kind:   MsgKindHeartbeat,
 		Raw:    bytes,
 	}
+}
+
+// Private functions for managing the Network
+
+// heartbeater simply emits a heartbeat every 10 seconds.
+func heartbeater(n *Network, exit chan int) {
+	for {
+		timer := time.After(time.Second * 10)
+		select {
+		case <-timer:
+			n.SendPing()
+		case _, ok := <-exit:
+			if ok {
+				panic("why did we get OK from closed exit")
+			}
+			return
+		}
+	}
+}
+
+// runBroadcastListener will loop over messages from the network and decide what to do with them.
+// This will fire of a 'listen' goroutine for the multicast network connection.
+func runBroadcastListener(n *Network, exit chan int) {
+	log.Printf("Online.")
+	incoming := make(chan *Message, 100)
+	// go n.listen(n.conn, incoming) // no need for this listener until we want direct messaging
+	go n.listen(n.bconn, incoming)
+
+	alive := true
+	for alive {
+		timeout := time.After(time.Second * 15)
+		select {
+		case msg := <-incoming:
+			con := n.connections[msg.Target]
+			con.Alive = true
+			con.LastPing = time.Now()
+
+			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
+			if length > 1500 {
+				panic("TOO BIG MSG")
+			}
+
+			n.Incoming <- msg
+		case msg := <-n.Outgoing:
+			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
+				break // can't find this user
+			}
+			addr := n.connections[msg.Target].Addr
+			if n, err := n.conn.WriteToUDP(msg.Raw, addr); err != nil {
+				fmt.Println("Error: ", err, " Bytes Written: ", n)
+			}
+		case <-exit:
+			alive = false
+			break
+		case <-timeout:
+		}
+		n.timeoutStale()
+	}
+	fmt.Println("Killing Socket Server")
+	n.conn.Close()
 }
