@@ -140,9 +140,9 @@ func (p *Portal) list() []string {
 func (p *Portal) peerslist() []string {
 	p.loc.RLock()
 	names := make([]string, 0, len(p.peers))
-	for _, p := range p.peers {
-		if p.Alive {
-			names = append(names, p.Addr.String())
+	for addr, pp := range p.peers {
+		if pp.Alive {
+			names = append(names, addr)
 		}
 	}
 	p.loc.RUnlock()
