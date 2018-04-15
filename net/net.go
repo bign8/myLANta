@@ -86,6 +86,12 @@ func New(port string, exit chan int) *Network {
 		case itf.HardwareAddr == nil:
 			continue // not real network hardware
 		}
+		if multiz, err := itf.MulticastAddrs(); err != nil {
+			log.Fatal("cant get the IPs  MulticastAddress", err)
+		} else if len(multiz) == 0 {
+			continue // no multicast
+		}
+
 		addrs, err := itf.Addrs()
 		if err != nil {
 			log.Fatal("cant get the IPs Addrs", err)
