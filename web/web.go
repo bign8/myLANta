@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -14,7 +15,7 @@ import (
 )
 
 // New constructs a new web portan handler.
-func New(n *net.Network) http.Handler {
+func New(ctx context.Context, n *net.Network) http.Handler {
 	p := &Portal{
 		mux: http.NewServeMux(),
 		web: http.FileServer(http.Dir("dist")),
@@ -23,26 +24,30 @@ func New(n *net.Network) http.Handler {
 		all: &net.FileList{
 			Files: make(map[string]string),
 		},
-		loc: sync.RWMutex{},
-		tpl: template.Must(template.ParseFiles("web/index.gohtml")),
+		peers: map[string]peer{},
+		loc:   sync.RWMutex{},
+		tpl:   template.Must(template.ParseFiles("web/index.gohtml")),
 	}
 	p.mux.HandleFunc("/", p.root)
 	p.mux.HandleFunc("/add", p.add)
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
 	p.mux.HandleFunc("/msg", p.msg)
+
+	go networkController(ctx, n, p)
 	return p.mux
 }
 
 // Portal is the web portal driver.
 type Portal struct {
-	mux *http.ServeMux
-	web http.Handler
-	net *net.Network
-	mem map[string][]byte
-	all *net.FileList
-	loc sync.RWMutex
-	tpl *template.Template
+	mux   *http.ServeMux
+	web   http.Handler
+	net   *net.Network
+	mem   map[string][]byte
+	all   *net.FileList
+	peers map[string]peer
+	loc   sync.RWMutex
+	tpl   *template.Template
 }
 
 func showErr(w http.ResponseWriter, msg string, err error) {
@@ -58,7 +63,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 			Peers []string
 			Files []string
 		}{
-			Peers: p.net.Peers(),
+			Peers: p.peerslist(),
 			Files: p.list(),
 		})
 		if err != nil {
@@ -125,6 +130,20 @@ func (p *Portal) list() []string {
 	names := make([]string, 0, len(p.mem))
 	for key := range p.mem {
 		names = append(names, key)
+	}
+	p.loc.RUnlock()
+	sort.Strings(names)
+	return names
+}
+
+// another short term hack
+func (p *Portal) peerslist() []string {
+	p.loc.RLock()
+	names := make([]string, 0, len(p.peers))
+	for _, p := range p.peers {
+		if p.Alive {
+			names = append(names, p.Addr.String())
+		}
 	}
 	p.loc.RUnlock()
 	sort.Strings(names)

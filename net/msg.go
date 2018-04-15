@@ -3,12 +3,13 @@ package net
 import (
 	"encoding/json"
 	"log"
+	"net"
 )
 
 // Message containing the messaging.
 type Message struct {
 	Data []byte
-	Addr string
+	Addr *net.UDPAddr
 	Kind MsgKind
 }
 
@@ -33,7 +34,6 @@ type Chat struct {
 // EncodeChat ...
 func EncodeChat(data []byte) *Message {
 	return &Message{
-		Addr: discoveryAddr,
 		Kind: MsgKindChat,
 		Data: data,
 	}
@@ -69,7 +69,6 @@ func EncodeFileList(fl *FileList) *Message {
 		panic(err)
 	}
 	return &Message{
-		Addr: discoveryAddr,
 		Kind: MsgKindFiles,
 		Data: data,
 	}
@@ -92,7 +91,6 @@ func decodeHeartbeat(m *Message) Heartbeat {
 // NewMsgHeartbeat ...
 func NewMsgHeartbeat() *Message {
 	return &Message{
-		Addr: discoveryAddr,
 		Kind: MsgKindHeartbeat,
 	}
 }
@@ -100,7 +98,6 @@ func NewMsgHeartbeat() *Message {
 // NewMsgPing creates a new ping message
 func NewMsgPing() *Message {
 	return &Message{
-		Addr: discoveryAddr,
 		Kind: MsgKindPing,
 	}
 }

@@ -24,7 +24,7 @@ func main() {
 	// Start up new server context
 	ctx, exit := context.WithCancel(context.Background())
 	network := net.New(port)
-	wserver := &http.Server{Addr: port, Handler: web.New(network)}
+	wserver := &http.Server{Addr: port, Handler: web.New(ctx, network)}
 	wserver.RegisterOnShutdown(exit) // bind network to wserver shutdown
 
 	// Execute application
@@ -35,7 +35,6 @@ func main() {
 	go func() {
 		log.Fatal(wserver.ListenAndServe())
 	}()
-	go networkController(ctx, network)
 	go consoleDebugger(ctx, network)
 
 	// Full gracefull shutdown
@@ -48,28 +47,6 @@ func main() {
 	defer done()
 	wserver.Shutdown(killCtx) // kills webserver
 	log.Print("goodbye")
-}
-
-// This could go somewhere else, not sure yet good design for this.
-func networkController(ctx context.Context, n *net.Network) {
-	for ctx.Err() == nil {
-		msg := <-n.Incoming
-		switch msg.Kind {
-		case net.MsgKindPing:
-			n.Send(net.NewMsgHeartbeat()) // maybe controller handles this.
-		case net.MsgKindHeartbeat:
-			// nothing to do i guess
-		case net.MsgKindChat:
-			// I dont like this.. maybe we should make a channel for each message type instead of a single one.
-			chat := net.DecodeChat(msg)
-			log.Printf("Got Chat: %q", chat.Text)
-		case net.MsgKindFiles:
-			fl := net.DecodeFileList(msg)
-			// TODO: set on web
-			log.Printf("Got Files: %#v", fl.Files)
-		}
-	}
-
 }
 
 func consoleDebugger(ctx context.Context, network *net.Network) {
@@ -90,8 +67,6 @@ func consoleDebugger(ctx context.Context, network *net.Network) {
 			network.Send(net.NewMsgHeartbeat())
 		case 'p': // p = ping
 			network.Send(net.NewMsgPing())
-		case 'l': // l = list peer
-			log.Printf("Current Peers: %#v", network.Peers())
 		}
 	}
 }
