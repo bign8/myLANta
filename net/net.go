@@ -137,7 +137,7 @@ func (n *Network) Run(ctx context.Context) error {
 	// notify everyone that we are starting up
 	go n.Send(NewMsgPing())
 
-	ticker := time.NewTicker(time.Second * 15)
+	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 	for {
 		select {
@@ -167,7 +167,7 @@ func (n *Network) Run(ctx context.Context) error {
 			// TODO: shutdown all conns
 			return direct.Close()
 		case <-ticker.C:
-			n.Send(NewMsgHeartbeat())
+			go n.Send(NewMsgHeartbeat())
 		}
 	}
 }

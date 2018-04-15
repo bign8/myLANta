@@ -29,7 +29,6 @@ func networkController(ctx context.Context, n *net.Network, p *Portal) {
 			p.loc.Lock()
 			for key, peer := range p.peers {
 				if peer.Alive && peer.LastPing.Before(expired) {
-					log.Printf("setting alive to false")
 					peer.Alive = false
 					p.peers[key] = peer
 				}
