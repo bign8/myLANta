@@ -3,15 +3,29 @@ package svc
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/bign8/myLANta/model"
-	"github.com/bign8/myLANta/net"
 )
 
-var _ model.MyLANta = (*Service)(nil)
+const (
+	msgPing = byte(iota) // welcome to the new application
+	msgPong              // initial response from all peers, their peers and file lists
+	msgChat              // someone sends a message
+	msgFile              // someones file listing has changed
+	msgBeep              // healthcheck broadcasts
+)
+
+var (
+	_ model.MyLANta = (*Service)(nil)
+
+	ttl  = flag.Duration("ttl", 30*time.Second, "time for peers to die after no health")
+	beat = flag.Duration("del", 5*time.Second, "delay between heartbeats")
+)
 
 // New constructs a MyLANta service.
 func New() *Service {
@@ -43,25 +57,30 @@ func (svc *Service) Run(ctx context.Context, inbox <-chan *model.Message, outbox
 	var ( // variables governed by this routine
 		peers = make(map[string]*peer) // key: addr
 		files = make(map[string]*file) // key: hash
+		heart = time.NewTicker(*beat)
 	)
 
 	for {
 		select {
 		case <-ctx.Done():
+			heart.Stop()
 			return ctx.Err()
 
 		case m := <-inbox:
 			svc.touch(m.Addr)
-			switch net.MsgKind(m.Data[0]) {
-			case net.MsgKindChat:
+			switch m.Data[0] {
+			case msgPing:
+				outbox <- &model.Message{Addr: m.Addr, Data: []byte{msgPong}} // TODO: send ping data
+			case msgPong:
+				// TODO: load pong data
+			case msgChat:
 				log.Printf("web got chat: %q %v %v", string(m.Data), peers, files)
-			case net.MsgKindFiles:
-				log.Printf("web got files from %q", m.Addr)
-			case net.MsgKindHeartbeat:
-				log.Printf("web got beat from %q", m.Addr)
-			case net.MsgKindPing:
-				log.Printf("web got ping from %q", m.Addr)
-				outbox <- &model.Message{Data: []byte{byte(net.MsgKindHeartbeat)}}
+				// TODO: send to all listeners (in non-blocking fashion)
+			case msgFile:
+				// TODO: update and emit event to listeners
+			case msgBeep: // don't care, just needed to touch site
+			default:
+				panic("unsupported type")
 			}
 
 		case r := <-svc.req:
@@ -71,6 +90,9 @@ func (svc *Service) Run(ctx context.Context, inbox <-chan *model.Message, outbox
 			default:
 				r.done <- request{data: errors.New("TODO")}
 			}
+
+		case <-heart.C:
+			outbox <- &model.Message{Data: []byte{msgBeep}}
 		}
 	}
 }

@@ -39,6 +39,7 @@ func (las listAddrSeen) Less(a, b int) bool { return las[a].seen.After(las[b].se
 
 // Fetch gathers a file from a peer.
 func (svc *Service) Fetch(hash string) ([]byte, error) {
+	// expired := time.Now().Add(-*ttl)
 	svc.mux.RLock()
 	file, ok := svc.files[hash]
 	if !ok || len(file.peers) == 0 { // TODO: or the peers are really old
