@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"os"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -44,16 +41,15 @@ type Peer struct {
 }
 
 // New creates a new network.
-func New(exit chan int) *Network {
+func New(port string, exit chan int) *Network {
 	network := &Network{
 		connections: make([]Peer, maxClient), // max of int16
 		connLookup:  map[string]int16{},
 		Incoming:    make(chan *Message, 100),
 		Outgoing:    make(chan *Message, 100),
 		lastID:      1,
+		mahport:     port,
 	}
-	rand.Seed(time.Now().Unix())
-	network.mahport = strconv.Itoa(rand.Intn(65535-49152) + 49152) //49152 to 65535
 
 	var err error
 	network.connections[0].Addr, err = net.ResolveUDPAddr("udp", discoveryAddr)
@@ -79,15 +75,31 @@ func New(exit chan int) *Network {
 	}
 	itfs, err := net.Interfaces()
 	if err != nil {
-		panic("cant get the IPs")
+		log.Fatal("cant get the IPs Interfaces", err)
 	}
 	for _, itf := range itfs {
+		switch {
+		case itf.Flags&net.FlagUp != net.FlagUp:
+			continue // skip down interfaces
+		case itf.Flags&net.FlagLoopback == net.FlagLoopback:
+			continue // skip loopbacks
+		case itf.HardwareAddr == nil:
+			continue // not real network hardware
+		}
 		addrs, err := itf.Addrs()
 		if err != nil {
-			panic("cant get the IPs")
+			log.Fatal("cant get the IPs Addrs", err)
 		}
 		for _, addr := range addrs {
-			sliceaddr := strings.Split(addr.String(), "/")[0]
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil {
+				log.Fatal("cant get the IPs ParseCIDR", err)
+			}
+			ipv4 := ip.To4()
+			if ipv4 == nil {
+				continue // skip ipv4 addrs
+			}
+			sliceaddr := ipv4.String()
 			network.myips = append(network.myips, sliceaddr)
 			network.connLookup[sliceaddr+":"+network.mahport] = 1
 		}

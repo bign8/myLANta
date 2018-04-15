@@ -12,16 +12,16 @@ import (
 	"github.com/bign8/myLANta/web"
 )
 
-var portz = flag.String("port", "9696", "port to serve on")
+var port = flag.String("port", "9696", "port to serve on")
 
 func main() {
-	exit := make(chan int, 10)
-	network := net.New(exit)
-
 	flag.Parse()
-	log.Println("Serving on :" + *portz)
+	log.Println("Serving on :" + *port)
+
+	exit := make(chan int, 10)
+	network := net.New(*port, exit)
 	go func() {
-		panic(http.ListenAndServe(":"+*portz, web.New(network)))
+		panic(http.ListenAndServe(":"+*port, web.New(network)))
 	}()
 
 	cancel := make(chan os.Signal, 1)
