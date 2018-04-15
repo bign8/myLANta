@@ -24,21 +24,19 @@ func networkController(ctx context.Context, n *net.Network, p *Portal) {
 	go func() {
 		// TODO: find better spot for this... this will do but it should be better
 		for ctx.Err() == nil {
-			time.Sleep(time.Second * 35) // TODO: parameterize this
-			log.Printf("looking for stale connections")
+			time.Sleep(time.Second * 5)                 // TODO: parameterize this
+			expired := time.Now().Add(-time.Second * 5) // TODO(bign8): parameterize
 			p.loc.Lock()
-			expired := time.Now().Add(-time.Second * 35) // TODO(bign8): parameterize
 			for key, peer := range p.peers {
 				if peer.Alive && peer.LastPing.Before(expired) {
-					peer.Alive = true
+					log.Printf("setting alive to false")
+					peer.Alive = false
 					p.peers[key] = peer
 				}
 			}
 			p.loc.Unlock()
 		}
 	}()
-	//   // look for (and expire) stale peers.
-	//   // TODO(lologorithm): currently mutates the peers list which I don't like.
 
 	for ctx.Err() == nil {
 		msg := <-n.Incoming
