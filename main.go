@@ -2,47 +2,61 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/bign8/myLANta/net"
 	"github.com/bign8/myLANta/web"
 )
 
-var port = flag.String("port", "9696", "port to serve on")
+var iport = flag.Int("port", 9696, "port to serve on")
 
 func main() {
 	flag.Parse()
-	log.Println("Serving on :" + *port)
+	port := fmt.Sprintf(":%d", *iport)
 
-	exit := make(chan int, 10)
-	network := net.New(*port, exit)
+	// Start up new server context
+	ctx, exit := context.WithCancel(context.Background())
+	network := net.New(port)
+	wserver := &http.Server{Addr: port, Handler: web.New(network)}
+	wserver.RegisterOnShutdown(exit) // bind network to wserver shutdown
+
+	// Execute application
+	log.Println("Serving on " + port)
 	go func() {
-		panic(http.ListenAndServe(":"+*port, web.New(network)))
+		log.Fatal(network.Run(ctx))
 	}()
+	go func() {
+		log.Fatal(wserver.ListenAndServe())
+	}()
+	go networkController(ctx, network)
+	go consoleDebugger(ctx, network)
 
+	// Full gracefull shutdown
 	cancel := make(chan os.Signal, 1)
 	signal.Notify(cancel, os.Interrupt)
-
-	go networkController(network)
-	go consoleDebugger(network)
-
 	<-cancel
-	close(exit)
-
-	log.Printf("goodbye")
+	fmt.Println() // new line for terminals that echo control sequences
+	log.Println("shutting down...")
+	killCtx, done := context.WithTimeout(context.Background(), time.Second*10)
+	defer done()
+	wserver.Shutdown(killCtx) // kills webserver
+	log.Print("goodbye")
 }
 
 // This could go somewhere else, not sure yet good design for this.
-func networkController(n *net.Network) {
-	for {
+func networkController(ctx context.Context, n *net.Network) {
+	for ctx.Err() == nil {
 		msg := <-n.Incoming
 		switch msg.Kind {
 		case net.MsgKindPing:
-			n.SendHeartbeat() // maybe controller handles this.
+			n.Send(net.NewMsgHeartbeat()) // maybe controller handles this.
 		case net.MsgKindHeartbeat:
 			// nothing to do i guess
 		case net.MsgKindChat:
@@ -58,10 +72,10 @@ func networkController(n *net.Network) {
 
 }
 
-func consoleDebugger(network *net.Network) {
+func consoleDebugger(ctx context.Context, network *net.Network) {
 	buf := bufio.NewReader(os.Stdin)
 
-	for {
+	for ctx.Err() == nil {
 		line, _, err := buf.ReadLine()
 		if err != nil {
 			panic("stdin blew up: " + err.Error())
@@ -71,11 +85,11 @@ func consoleDebugger(network *net.Network) {
 		}
 		switch line[0] {
 		case 'c':
-			network.SendChat(string(line[2:]))
+			network.Send(net.EncodeChat(line[2:]))
 		case 'h': // h = heartbeat
-			network.SendHeartbeat()
+			network.Send(net.NewMsgHeartbeat())
 		case 'p': // p = ping
-			network.SendPing()
+			network.Send(net.NewMsgPing())
 		case 'l': // l = list peer
 			log.Printf("Current Peers: %#v", network.Peers())
 		}

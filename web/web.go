@@ -55,7 +55,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		p.tpl = template.Must(template.ParseFiles("web/index.gohtml")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
-			Peers []net.Peer
+			Peers []string
 			Files []string
 		}{
 			Peers: p.net.Peers(),
@@ -93,7 +93,7 @@ func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
 	p.loc.Lock()
 	p.mem[handler.Filename] = bits
 	p.all.Files[handler.Filename] = "todo"
-	p.net.SendFileList(p.all)
+	p.net.Send(net.EncodeFileList(p.all))
 	p.loc.Unlock()
 
 	// Update client

@@ -1,19 +1,21 @@
 package net
 
 import (
-	"encoding/binary"
 	"encoding/json"
+	"log"
 )
 
 // Message containing the messaging.
 type Message struct {
-	Raw    []byte
-	Target int16
-	Kind   MsgKind
+	Data []byte
+	Addr string
+	Kind MsgKind
 }
 
+// MsgKind ...
 type MsgKind byte
 
+// asdf ...
 const (
 	MsgKindUnknown MsgKind = iota
 	MsgKindHeartbeat
@@ -22,32 +24,55 @@ const (
 	MsgKindChat
 )
 
+// Chat ...
 type Chat struct {
 	Name string
 	Text string
 }
 
-func DecodeChat(m *Message) Chat {
-	length := binary.LittleEndian.Uint16(m.Raw[1:3])
-	if length > 1500 {
-		panic("TOO BIG MSG")
-	}
-	return Chat{
-		Text: string(m.Raw[3 : 3+length]),
+// EncodeChat ...
+func EncodeChat(data []byte) *Message {
+	return &Message{
+		Addr: discoveryAddr,
+		Kind: MsgKindChat,
+		Data: data,
 	}
 }
 
+// DecodeChat ...
+func DecodeChat(m *Message) Chat {
+	return Chat{
+		Text: string(m.Data),
+	}
+}
+
+// FileList ...
 type FileList struct {
 	Files map[string]string // map of file name to md5
 }
 
+// DecodeFileList ...
 func DecodeFileList(m *Message) FileList {
 	fl := FileList{}
-	lol := json.Unmarshal(m.Raw[3:], &fl.Files)
+	lol := json.Unmarshal(m.Data, &fl.Files)
 	if lol != nil {
 		panic(lol)
 	}
 	return fl
+}
+
+// EncodeFileList ...
+func EncodeFileList(fl *FileList) *Message {
+	data, err := json.Marshal(fl.Files)
+	if err != nil {
+		log.Printf("failed to encode file list to send")
+		panic(err)
+	}
+	return &Message{
+		Addr: discoveryAddr,
+		Kind: MsgKindFiles,
+		Data: data,
+	}
 }
 
 // Heartbeat information.
@@ -62,4 +87,20 @@ func decodeHeartbeat(m *Message) Heartbeat {
 	// 	panic(lol)
 	// }
 	return hb
+}
+
+// NewMsgHeartbeat ...
+func NewMsgHeartbeat() *Message {
+	return &Message{
+		Addr: discoveryAddr,
+		Kind: MsgKindHeartbeat,
+	}
+}
+
+// NewMsgPing creates a new ping message
+func NewMsgPing() *Message {
+	return &Message{
+		Addr: discoveryAddr,
+		Kind: MsgKindPing,
+	}
 }

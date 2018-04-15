@@ -1,7 +1,7 @@
 package model
 
-// State gives the list of files.
-type State interface {
+// Service gives the list of files.
+type Service interface {
 
 	// Peers gives the list of peers within the network.
 	Peers() map[string]string // hash -> name

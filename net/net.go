@@ -1,82 +1,80 @@
 package net
 
 import (
-	"encoding/binary"
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"sync/atomic"
 	"time"
 )
 
 var discoveryAddr = "239.1.12.123:9999"
 
-const maxClient = 1 << 16
+const maxClient = int16(1<<15 - 1)
 
 // Network is a udp network manager.
 // TODO: rename this, possibly 'net.Interface' or 'net.Conn' not sure yet. 'net.Manager' is such a generic name... but maybe it works here.
 type Network struct {
-	conn        *net.UDPConn     // my udp conn
-	bconn       *net.UDPConn     // multicast listening conn
-	connLookup  map[string]int16 // only used by the 'listen' goroutine
-	connections []Peer           // list of all connections. fixed in length so we dont gotta worry about reallocating across goroutines
-	lastID      int32            // used to allocate ID for remote user
-	myips       []string         // list of my IPs to filter incoming messages
-	mahport     string           // port this network is running on
+
+	// Private members that should only be accessed by Run
+	// TODO: move these off the network object
+	lookup map[string]int16 // only used by the 'listen' goroutine
+	peers  []peer           // list of all peers (only Run touches this list)
+
+	// Internal, but thread safe members
+	outbox chan *sending // outgoing messages queued by Send
 
 	// Public Interface to Network
-	Outgoing chan *Message // controller writes to this channel to send (or just call Network.SendXXX)
 	Incoming chan *Message // Messages sent to this will be re-emitted for consumption by controller
 }
 
 // Peer is all the metadata for a peer.
-type Peer struct {
+type peer struct {
 	Addr     *net.UDPAddr
-	ID       int16 `js:"-"`
-	Alive    bool  `js:"-"`
+	ID       int16
+	Alive    bool
 	LastPing time.Time
 	Name     string
 }
 
+func chk(msg string, err error) {
+	if err != nil {
+		log.Fatal(msg, err)
+	}
+}
+
 // New creates a new network.
-func New(port string, exit chan int) *Network {
-	network := &Network{
-		connections: make([]Peer, maxClient), // max of int16
-		connLookup:  map[string]int16{},
-		Incoming:    make(chan *Message, 100),
-		Outgoing:    make(chan *Message, 100),
-		lastID:      1,
-		mahport:     port,
+func New(port string) *Network {
+	n := &Network{
+		peers:    make([]peer, 0, maxClient), // max of int16
+		lookup:   map[string]int16{},
+		outbox:   make(chan *sending, 100),
+		Incoming: make(chan *Message, 100),
 	}
 
-	var err error
-	network.connections[0].Addr, err = net.ResolveUDPAddr("udp", discoveryAddr)
-	if err != nil {
-		panic(err)
+	// Setting loopbacks for my address (this is so we don't send messages to ourself)
+	ips := getMyIPs()
+	log.Printf("My IPs: %s", ips)
+	for _, ip := range ips {
+		n.lookup[ip+port] = 1
 	}
-	network.connections[1].Addr, err = net.ResolveUDPAddr("udp", ":"+network.mahport)
-	if err != nil {
-		panic(err)
-	}
-	network.connections[1].Name, err = os.Hostname()
-	if err != nil {
-		network.connections[1].Name = err.Error()
-	}
-	network.connections[1].ID = 1
-	network.conn, err = net.ListenUDP("udp", network.connections[1].Addr)
-	if err != nil {
-		panic(err)
-	}
-	network.bconn, err = net.ListenMulticastUDP("udp", nil, network.connections[0].Addr)
-	if err != nil {
-		panic(err)
-	}
+
+	// Setups peers 0 and 1 to be multicast and self
+	addr, err := net.ResolveUDPAddr("udp", discoveryAddr)
+	chk("ResolveUDPAddr Multicast", err)
+	n.addPeer("multi", addr) // peer 0
+	addr, err = net.ResolveUDPAddr("udp", port)
+	chk("ResolveUDPAddr Self", err)
+	n.addPeer("self", addr) // peer 1
+
+	return n
+}
+
+func getMyIPs() (mine []string) {
 	itfs, err := net.Interfaces()
-	if err != nil {
-		log.Fatal("cant get the IPs Interfaces", err)
-	}
+	chk("net.Interfaces", err)
+
 	for _, itf := range itfs {
 		switch {
 		case itf.Flags&net.FlagUp != net.FlagUp:
@@ -98,233 +96,167 @@ func New(port string, exit chan int) *Network {
 		}
 		for _, addr := range addrs {
 			ip, _, err := net.ParseCIDR(addr.String())
-			if err != nil {
-				log.Fatal("cant get the IPs ParseCIDR", err)
-			}
+			chk("ParseCIDR", err)
+
 			ipv4 := ip.To4()
 			if ipv4 == nil {
 				continue // skip ipv4 addrs
 			}
-			sliceaddr := ipv4.String()
-			network.myips = append(network.myips, sliceaddr)
-			network.connLookup[sliceaddr+":"+network.mahport] = 1
+			mine = append(mine, ipv4.String())
 		}
 	}
-	log.Printf("My IPs: %s", network.myips)
-	log.Printf("I am %s", network.connections[1].Addr.String())
-	go runBroadcastListener(network, exit)
-	go heartbeater(network, exit)
-	return network
-}
-
-// timeoutStale iterates all connections finding
-// stale connections. Sets alive=false
-// called by runBroadcastListener every 15 seconds
-// currently mutates the connections list which I don't like.
-func (n *Network) timeoutStale() {
-	now := time.Now()
-	for i := range n.connections[2:] {
-		if i < 2 {
-			continue
-		}
-		c := n.connections[i]
-		if c.Addr == nil {
-			break
-		}
-		if !c.Alive {
-			continue
-		}
-		if now.Sub(c.LastPing) > time.Second*35 {
-			log.Printf("   timed out: %#v", c)
-			c.Alive = false
-			n.connections[i] = c
-		}
-	}
-}
-
-// addConn will add a connection to the connections map and slice.
-// since this function touches connLookup only use in listen goroutine.
-func (n *Network) addConn(name string, addr string, ipaddr *net.UDPAddr) int16 {
-	val := atomic.AddInt32(&n.lastID, 1)
-	if val > maxClient {
-		panic("too many clients have connected")
-	}
-	if ipaddr == nil {
-		var err error
-		ipaddr, err = net.ResolveUDPAddr("udp", addr)
-		if err != nil {
-			panic("bad client addr")
-		}
-	}
-	log.Printf("  New conn (%s), assigning idx: %d.", addr, val)
-	n.connLookup[addr] = int16(val)
-	n.connections[val] = Peer{Addr: ipaddr, ID: int16(val), Alive: true, Name: name, LastPing: time.Now()}
-	return int16(val)
-}
-
-// listen will listen to the given conn.
-// compares messages against the list of its own IP addresses to filter messages from
-// this client.
-func (n *Network) listen(conn *net.UDPConn, incoming chan *Message) {
-	buf := make([]byte, 2048)
-	for {
-		m, ipaddr, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			fmt.Println("ERROR: ", err)
-			return
-		}
-		if m == 0 {
-			continue
-		}
-		// Is this the fastest and simplest way to lookup unique connection?
-		addr := ipaddr.String()
-		connidx, ok := n.connLookup[addr]
-
-		if !ok {
-			shouldProcess := true // default to processing the message
-			// Check to see if this is my IP address
-			for _, maddr := range n.myips {
-				raddr := maddr + ":" + n.mahport
-				if addr == raddr {
-					log.Printf("   Ignoring peer %s", addr)
-					n.connLookup[addr] = 1 // Force this IP to link to my own local address
-					shouldProcess = false  // dont process my own messages
-					break
-				}
-			}
-			if !shouldProcess {
-				continue // skip to next network message
-			}
-			connidx = n.addConn("", addr, ipaddr)
-		}
-		if connidx == 1 {
-			continue // ignore my own messages
-		}
-		incoming <- &Message{
-			Kind:   MsgKind(buf[0]),
-			Raw:    buf[:m],
-			Target: connidx,
-		}
-	}
+	return mine
 }
 
 // Network Public Functions
 
 // Peers gives the active peers list
-func (n *Network) Peers() []Peer {
-	result := make([]Peer, 0, int(atomic.LoadInt32(&n.lastID))+1)
-	for _, c := range n.connections[2:] {
-		if c.Addr != nil && c.Alive {
-			result = append(result, c)
+func (n *Network) Peers() []string {
+	out := make([]string, 0)
+	for key, val := range n.lookup {
+		if val > 1 {
+			out = append(out, key)
 		}
 	}
-	return result
+	return out
 }
 
-func (n *Network) SendFileList(fl *FileList) {
-	bytes := []byte{byte(MsgKindFiles), 0, 0}
-	data, err := json.Marshal(fl.Files)
-	if err != nil {
-		log.Printf("failed to encode file list to send")
-		panic(err)
-	}
-	binary.LittleEndian.PutUint16(bytes[1:], uint16(len(data)))
-	bytes = append(bytes, data...)
-	n.Outgoing <- &Message{
-		Target: 0, // broadcast index
-		Kind:   MsgKindChat,
-		Raw:    bytes,
-	}
+type sending struct {
+	data []byte
+	addr string
+	done chan<- error
 }
 
-func (n *Network) SendChat(msg string) {
-	bytes := []byte{byte(MsgKindChat), 0, 0}
-	binary.LittleEndian.PutUint16(bytes[1:], uint16(len(msg)))
-	bytes = append(bytes, []byte(msg)...)
-	n.Outgoing <- &Message{
-		Target: 0, // broadcast index
-		Kind:   MsgKindChat,
-		Raw:    bytes,
+// Send broadcasts a message to it's indended consumer.
+func (n *Network) Send(msg *Message) error {
+	if len(msg.Data) > 1500 {
+		return errors.New("net.Send: message to large")
 	}
+	done := make(chan error, 1)
+	n.outbox <- &sending{
+		data: append([]byte{byte(msg.Kind)}, msg.Data...),
+		addr: msg.Addr,
+		done: done,
+	}
+	return <-done
 }
 
-func (n *Network) SendPing() {
-	bytes := []byte{byte(MsgKindPing), 0, 0} // ping doesnt have any data
-	n.Outgoing <- &Message{
-		Target: 0, // broadcast index
-		Kind:   MsgKindPing,
-		Raw:    bytes,
-	}
-}
-
-func (n *Network) SendHeartbeat() {
-	bytes := []byte{byte(MsgKindHeartbeat), 0, 0} // hb doesnt have any data
-	n.Outgoing <- &Message{
-		Target: 0, // broadcast index
-		Kind:   MsgKindHeartbeat,
-		Raw:    bytes,
-	}
-}
-
-// Private functions for managing the Network
-
-// heartbeater simply emits a heartbeat every 10 seconds.
-func heartbeater(n *Network, exit chan int) {
-	for {
-		timer := time.After(time.Second * 10)
-		select {
-		case <-timer:
-			n.SendPing()
-		case _, ok := <-exit:
-			if ok {
-				panic("why did we get OK from closed exit")
-			}
-			return
-		}
-	}
-}
-
-// runBroadcastListener will loop over messages from the network and decide what to do with them.
+// Run will loop over messages from the network and decide what to do with them.
 // This will fire of a 'listen' goroutine for the multicast network connection.
-func runBroadcastListener(n *Network, exit chan int) {
-	// log.Printf("Online.")
-	incoming := make(chan *Message, 100)
-	// go n.listen(n.conn, incoming) // no need for this listener until we want direct messaging
-	go n.listen(n.bconn, incoming)
+// This should be the only method that accesses peers or lookup.
+func (n *Network) Run(ctx context.Context) error {
+	incoming := make(chan inbound, 100)
 
-	n.SendPing() // once the listener is running, send a ping out.
+	// Listen to multicast
+	multicast, err := net.ListenMulticastUDP("udp", nil, n.peers[0].Addr)
+	if err != nil {
+		return err
+	}
+	go listen(multicast, incoming)
 
-	alive := true
-	for alive {
-		timeout := time.After(time.Second * 15)
+	// Listen to directed udp messages
+	direct, err := net.ListenUDP("udp", n.peers[1].Addr)
+	if err != nil {
+		return err
+	}
+	go listen(direct, incoming)
+
+	// notify everyone that we are starting up
+	go n.Send(NewMsgPing())
+
+	ticker := time.NewTicker(time.Second * 15)
+	defer ticker.Stop()
+	for {
 		select {
 		case msg := <-incoming:
-			con := n.connections[msg.Target]
+			idx, ok := n.lookup[msg.from.String()]
+			if !ok {
+				idx = n.addPeer("", msg.from)
+			} else if idx == 1 {
+				continue // ignore my own messages
+			}
+
+			// Update last seen timers
+			con := n.peers[idx]
 			con.Alive = true
 			con.LastPing = time.Now()
-			n.connections[msg.Target] = con
+			n.peers[idx] = con
 
-			length := binary.LittleEndian.Uint16(msg.Raw[1:3])
-			if length > 1500 {
-				panic("TOO BIG MSG")
+			// receive message
+			n.Incoming <- &Message{
+				Kind: MsgKind(msg.data[0]),
+				Data: msg.data[1:],
+				Addr: msg.from.String(),
+			}
+		case letter := <-n.outbox:
+			idx, ok := n.lookup[letter.addr]
+			if !ok {
+				letter.done <- errors.New("net.Send: cannot find address: " + letter.addr)
+				continue
 			}
 
-			n.Incoming <- msg
-		case msg := <-n.Outgoing:
-			if msg.Target > int16(atomic.LoadInt32(&n.lastID)) {
-				break // can't find this user
-			}
-			addr := n.connections[msg.Target].Addr
-			if n, err := n.conn.WriteToUDP(msg.Raw, addr); err != nil {
+			// send message
+			addr := n.peers[idx].Addr
+			n, err := direct.WriteToUDP(letter.data, addr)
+			if err != nil {
 				fmt.Println("Error: ", err, " Bytes Written: ", n)
 			}
-		case <-exit:
-			alive = false
-			break
-		case <-timeout:
+			letter.done <- err
+		case <-ctx.Done():
+			fmt.Println("Killing UDP Server")
+			// TODO: shutdown all conns
+			return direct.Close()
+		case now := <-ticker.C:
+			n.Send(NewMsgPing())
+
+			// look for (and expire) stale peers.
+			// TODO(lologorithm): currently mutates the peers list which I don't like.
+			expired := now.Add(-time.Second * 35) // TODO(bign8): parameterize
+			for i := 2; i < len(n.peers); i++ {
+				if c := n.peers[i]; c.Alive && c.LastPing.Before(expired) {
+					log.Printf("   timed out: %#v", c)
+					c.Alive = false
+					n.peers[i] = c
+				}
+			}
 		}
-		n.timeoutStale()
 	}
-	fmt.Println("Killing Socket Server")
-	n.conn.Close()
+}
+
+// addPeer will add a connection to the peers map and slice.
+// since this function touches peers only use in Run goroutine.
+func (n *Network) addPeer(name string, addr *net.UDPAddr) int16 {
+	val := int16(len(n.peers))
+	if val > maxClient {
+		panic("too many clients have connected")
+	}
+	log.Printf("  New conn (%s), assigning idx: %d.", addr.String(), val)
+	n.lookup[addr.String()] = val
+
+	n.peers = append(n.peers, peer{
+		Addr:     addr,
+		ID:       val,
+		Alive:    true,
+		Name:     name,
+		LastPing: time.Now(),
+	})
+	return val
+}
+
+type inbound struct {
+	from *net.UDPAddr
+	data []byte
+}
+
+// listen will listen to the given conn.
+func listen(conn *net.UDPConn, incoming chan<- inbound) {
+	buf := make([]byte, 2048)
+	for {
+		m, from, err := conn.ReadFromUDP(buf)
+		chk("ReadFromUDP", err)
+		if m == 0 {
+			continue
+		}
+		incoming <- inbound{from: from, data: buf[:m]}
+	}
 }
