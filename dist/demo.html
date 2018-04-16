@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Rotating Toast</title>
+    <style>
+      html {
+        font-family: Arial;
+      }
+      .screen {
+        height: 600px;
+        width: 600px;
+        position: relative;
+        border: 1px solid black;
+        margin: 10px;
+        padding: 10px;
+        overflow: hidden;
+      }
+      .toast {
+        position: absolute;
+        border: 1px solid red;
+        padding: 10px;
+        box-sizing: border-box;
+        right: 0px;
+        bottom: 0px;
+        transform-origin: 100% 0%;
+        transition:all 0.3s ease;
+        text-align: center;
+        color: rgba(0, 0, 0, 0);
+        transform: rotate(-45deg) translate(0, 100px);
+        background: rgba(255, 0, 0, 0.2);
+      }
+      .screen:hover .toast {
+        transform: rotate(-45deg) translate(0, 0);
+      }
+      .screen:hover .toast:hover {
+        color: rgba(255, 0, 0, 1) !important;
+        transform: rotate(0) !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div id="content">
+        <p>
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit. In blandit suscipit eros nec gravida. Fusce molestie tortor et mattis elementum. Sed tempus convallis neque. Duis cursus dictum tortor a pulvinar. Integer nec velit ac neque hendrerit pulvinar. Mauris a tortor at ligula vehicula dapibus nec vitae turpis. Quisque molestie laoreet nisi, nec tincidunt elit suscipit ut. Aenean mauris sem, tristique quis dolor pretium, congue venenatis magna. Ut porttitor neque eu tortor posuere pharetra. Morbi ornare auctor ante, ut condimentum lacus mattis sit amet.
+        </p>
+        <p>
+          Etiam ullamcorper sed ante at lacinia. Aliquam erat volutpat. Sed consequat risus sed nulla molestie lacinia nec ut neque. Ut commodo facilisis sem, eu ullamcorper eros pretium suscipit. Donec mollis, dui sed molestie venenatis, mi nisi luctus orci, a faucibus magna urna ut nisl. Aliquam ac congue lorem. Quisque nisi odio, molestie sed lectus sed, eleifend aliquet metus. Mauris quis dolor non sem placerat pulvinar. Maecenas lorem diam, consequat facilisis tellus et, mollis dictum odio. In sagittis a nunc at congue. Nunc ultrices, ipsum sit amet tempor consequat, magna quam consequat nisi, ut mattis felis massa sed magna. Quisque porttitor, diam id tincidunt porttitor, orci turpis mattis lectus, semper tristique orci mi sed nunc.
+        </p>
+      </div>
+
+      <div class="toast">
+        <h3>Awesome Toast</h3>
+        <p>It can even have content</p>
+      </div>
+    </div>
+  </body>
+</html>
