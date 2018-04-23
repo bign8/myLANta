@@ -33,6 +33,7 @@ func New(ctx context.Context, n *net.Network) http.Handler {
 	p.mux.HandleFunc("/get", p.get)
 	p.mux.HandleFunc("/del", p.del)
 	p.mux.HandleFunc("/msg", p.msg)
+	p.mux.HandleFunc("/out", p.out)
 
 	go networkController(ctx, n, p)
 	return p.mux
@@ -46,8 +47,15 @@ type Portal struct {
 	mem   map[string][]byte
 	all   *net.FileList
 	peers map[string]peer
+	msgs  []msg
 	loc   sync.RWMutex
 	tpl   *template.Template
+}
+
+type msg struct {
+	when time.Time
+	who  string
+	what string
 }
 
 func showErr(w http.ResponseWriter, msg string, err error) {
@@ -150,8 +158,25 @@ func (p *Portal) peerslist() []string {
 	return names
 }
 
+func (p *Portal) out(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		r.ParseForm()
+		p.msgs = append(p.msgs, msg{
+			who:  "????",
+			what: r.Form.Get("msg"),
+			when: time.Now(),
+		})
+	}
+	http.Redirect(w, r, "/msg", http.StatusSeeOther)
+}
+
 func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "text/html")
+
+	fmt.Fprint(w, `<link rel="stylesheet" href="/style.css">`+"\n"+`<div class="chats">`+"\n")
+	for _, msg := range p.msgs {
+		fmt.Fprintf(w, `<p class="msg"><span class="who">%s</span><span class="what">%s</span><span class="when">%s</span></p>`+"\n", msg.who, msg.what, msg.when.Format(time.ANSIC))
+	}
 
 	// Long pull http response of remaining content
 	if f, ok := w.(http.Flusher); ok {

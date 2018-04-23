@@ -8,7 +8,7 @@
   <body>
     <h1>myLANta - offline lan party</h1>
 
-    <form enctype="multipart/form-data" action="/add" method="post">
+    <form enctype="multipart/form-data" action="/add" method="post" name="file">
       <input type="file" name="file" />
       <input type="submit" value="Serve file to group"  />
     </form>
@@ -41,13 +41,14 @@
       </ul>
     </div>
 
-    <!-- <div class="group">
+    <div class="group">
       <h2>Chat</h2>
-      <form>
-        TODO: form
+      <form action="/out" method="post" target="message" name="chat">
+        <input name="msg" type="text" placeholder="message..." />
+        <input type="submit" value="Send message to group" />
+        <iframe src="/msg" name="message" width="100%"></iframe>
       </form>
-      <iframe src="/msg" width="100%"></iframe>
-    </div> -->
+    </div>
 
     <script src="/script.js"></script>
   </body>
