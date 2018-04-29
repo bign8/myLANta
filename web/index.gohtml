@@ -44,6 +44,7 @@
     <div class="group">
       <h2>Chat</h2>
       <form action="/out" method="post" target="message" name="chat">
+        <input name="who" type="text" placeholder="John Doe" />
         <input name="msg" type="text" placeholder="message..." />
         <input type="submit" value="Send message to group" />
         <iframe src="/msg" name="message" width="100%"></iframe>

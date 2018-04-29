@@ -61,8 +61,8 @@ func consoleDebugger(ctx context.Context, network *net.Network) {
 			continue
 		}
 		switch line[0] {
-		case 'c':
-			network.Send(net.EncodeChat(line[2:]))
+		// case 'c':
+		// 	network.Send(net.EncodeChat(line[2:]))
 		case 'h': // h = heartbeat
 			network.Send(net.NewMsgHeartbeat())
 		case 'p': // p = ping

@@ -1,6 +1,7 @@
 package net
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"net"
@@ -32,17 +33,19 @@ type Chat struct {
 }
 
 // EncodeChat ...
-func EncodeChat(data []byte) *Message {
+func EncodeChat(who, msg string) *Message {
 	return &Message{
 		Kind: MsgKindChat,
-		Data: data,
+		Data: []byte(who + "|" + msg),
 	}
 }
 
 // DecodeChat ...
 func DecodeChat(m *Message) Chat {
+	parts := bytes.Split(m.Data, []byte{'|'})
 	return Chat{
-		Text: string(m.Data),
+		Name: string(parts[0]),
+		Text: string(parts[1]),
 	}
 }
 
