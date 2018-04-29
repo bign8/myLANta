@@ -12,3 +12,15 @@ a:hover {
   margin: 0;
   padding: 0;
 }
+
+.msg .when {
+  font-weight: bold;
+  display: inline-block;
+  width: 125px;
+}
+
+.msg .who {
+  font-weight: bold;
+  display: inline-block;
+  width: 130px;
+}

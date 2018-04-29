@@ -174,11 +174,13 @@ func (p *Portal) out(w http.ResponseWriter, r *http.Request) {
 
 var chatTPL = `
 <p class="msg">
-	<span class="who">%s</span>
-	<span class="what">%s</span>
 	<span class="when">%s</span>
+	<span class="who">%s:</span>
+	<span class="what">%s</span>
 </p>
 `
+
+var timeFmt = "Jan _2 15:04:05"
 
 func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "text/html")
@@ -186,20 +188,20 @@ func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<link rel="stylesheet" href="/style.css">`+"\n"+`<div class="chats">`+"\n")
 	var last int
 	for i, msg := range p.msgs {
-		fmt.Fprintf(w, chatTPL, msg.who, msg.what, msg.when.Format(time.ANSIC))
+		fmt.Fprintf(w, chatTPL, msg.when.Format(timeFmt), msg.who, msg.what)
 		last = i + 1
 	}
 
 	// Long pull http response of remaining content
 	if f, ok := w.(http.Flusher); ok {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(time.Millisecond * 250)
 		var err error
 		for i := 0; err == nil; i++ {
 			// Terrible way of doing this
 			if tail := len(p.msgs); last < tail {
 				for j := last; j < tail; j++ {
 					msg := p.msgs[j]
-					fmt.Fprintf(w, chatTPL, msg.who, msg.what, msg.when.Format(time.ANSIC))
+					fmt.Fprintf(w, chatTPL, msg.when.Format(timeFmt), msg.who, msg.what)
 					last = j + 1
 				}
 			}

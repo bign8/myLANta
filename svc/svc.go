@@ -28,7 +28,7 @@ var (
 )
 
 // New constructs a MyLANta service.
-func New() *Service {
+func New(outbox chan<- *model.Message, inbox <-chan *model.Message) *Service {
 	svc := &Service{
 		peers: make(map[string]*peer),
 		files: make(map[string]*file),
@@ -44,6 +44,9 @@ type Service struct {
 	peers map[string]*peer // key: addr (TODO: move to run below)
 	files map[string]*file // key: hash (TODO: move to run below)
 	mux   sync.RWMutex
+
+	outbox chan<- *model.Message
+	inbox  <-chan *model.Message
 }
 
 type request struct {
@@ -53,7 +56,7 @@ type request struct {
 }
 
 // Run connects this service to a network transport tier.
-func (svc *Service) Run(ctx context.Context, inbox <-chan *model.Message, outbox chan<- *model.Message) error {
+func (svc *Service) Run(ctx context.Context) error {
 	var ( // variables governed by this routine
 		peers = make(map[string]*peer) // key: addr
 		files = make(map[string]*file) // key: hash
@@ -66,11 +69,11 @@ func (svc *Service) Run(ctx context.Context, inbox <-chan *model.Message, outbox
 			heart.Stop()
 			return ctx.Err()
 
-		case m := <-inbox:
+		case m := <-svc.inbox:
 			svc.touch(m.Addr)
 			switch m.Data[0] {
 			case msgPing:
-				outbox <- &model.Message{Addr: m.Addr, Data: []byte{msgPong}} // TODO: send ping data
+				svc.outbox <- &model.Message{Addr: m.Addr, Data: []byte{msgPong}} // TODO: send ping data
 			case msgPong:
 				// TODO: load pong data
 			case msgChat:
@@ -92,7 +95,7 @@ func (svc *Service) Run(ctx context.Context, inbox <-chan *model.Message, outbox
 			}
 
 		case <-heart.C:
-			outbox <- &model.Message{Data: []byte{msgBeep}}
+			svc.outbox <- &model.Message{Data: []byte{msgBeep}}
 		}
 	}
 }

@@ -49,5 +49,7 @@ func (svc *Service) Listen() ([]*model.Message, <-chan *model.Message, func()) {
 
 // Message sends a message to an individual.
 func (svc *Service) Message(who, what string) error {
+	data := []byte{msgChat}
+	svc.outbox <- &model.Message{Addr: "", Data: data}
 	return nil
 }
