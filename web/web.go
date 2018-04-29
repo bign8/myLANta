@@ -68,7 +68,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		p.tpl = template.Must(template.ParseFiles("web/index.gohtml")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
-			Peers []string
+			Peers []peer
 			Files []string
 		}{
 			Peers: p.peerslist(),
@@ -145,16 +145,16 @@ func (p *Portal) list() []string {
 }
 
 // another short term hack
-func (p *Portal) peerslist() []string {
+func (p *Portal) peerslist() []peer {
 	p.loc.RLock()
-	names := make([]string, 0, len(p.peers))
-	for addr, pp := range p.peers {
+	names := make([]peer, 0, len(p.peers))
+	for _, pp := range p.peers {
 		if pp.Alive {
-			names = append(names, addr)
+			names = append(names, pp)
 		}
 	}
 	p.loc.RUnlock()
-	sort.Strings(names)
+	// sort.Strings(names)
 	return names
 }
 
@@ -166,6 +166,10 @@ func (p *Portal) out(w http.ResponseWriter, r *http.Request) {
 			what: r.Form.Get("msg"),
 			when: time.Now(),
 		})
+		p.net.Send(&net.Message{
+			Data: []byte(r.Form.Get("msg")),
+			Kind: net.MsgKindChat,
+		})
 	}
 	http.Redirect(w, r, "/msg", http.StatusSeeOther)
 }
@@ -174,8 +178,10 @@ func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "text/html")
 
 	fmt.Fprint(w, `<link rel="stylesheet" href="/style.css">`+"\n"+`<div class="chats">`+"\n")
-	for _, msg := range p.msgs {
+	var last int
+	for i, msg := range p.msgs {
 		fmt.Fprintf(w, `<p class="msg"><span class="who">%s</span><span class="what">%s</span><span class="when">%s</span></p>`+"\n", msg.who, msg.what, msg.when.Format(time.ANSIC))
+		last = i + 1
 	}
 
 	// Long pull http response of remaining content
@@ -183,7 +189,17 @@ func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 		ticker := time.NewTicker(time.Second)
 		var err error
 		for i := 0; err == nil; i++ {
-			if _, err = fmt.Fprintf(w, `<span>%d</span><br/>`+"\n", i); err == nil { // style="display:none"
+			// Terrible way of doing this
+			if tail := len(p.msgs); last < tail {
+				for j := last; j < tail; j++ {
+					msg := p.msgs[j]
+					fmt.Fprintf(w, `<p class="msg"><span class="who">%s</span><span class="what">%s</span><span class="when">%s</span></p>`+"\n", msg.who, msg.what, msg.when.Format(time.ANSIC))
+					last = j + 1
+				}
+			}
+
+			// Send a ticker
+			if _, err = fmt.Fprintf(w, `<span style="display:none">%d</span>`+"\n", i); err == nil { // style="display:none"
 				f.Flush()
 				<-ticker.C
 			}

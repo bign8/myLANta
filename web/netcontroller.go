@@ -38,15 +38,15 @@ func networkController(ctx context.Context, n *net.Network, p *Portal) {
 	}()
 
 	for ctx.Err() == nil {
-		msg := <-n.Incoming
+		incoming := <-n.Incoming
 
 		// Update peers
-		addr := msg.Addr.String()
+		addr := incoming.Addr.String()
 		p.loc.Lock()
 		con, ok := p.peers[addr]
 		if !ok {
 			// setup new peer here.
-			con.Addr = msg.Addr
+			con.Addr = incoming.Addr
 			con.Name = "Unknown" // TODO: store name?
 		}
 		con.Alive = true
@@ -54,17 +54,22 @@ func networkController(ctx context.Context, n *net.Network, p *Portal) {
 		p.peers[addr] = con
 		p.loc.Unlock()
 
-		switch msg.Kind {
+		switch incoming.Kind {
 		case net.MsgKindPing:
 			n.Send(net.NewMsgHeartbeat()) // maybe controller handles this.
 		case net.MsgKindHeartbeat:
 			// nothing to do i guess
 		case net.MsgKindChat:
 			// I dont like this.. maybe we should make a channel for each message type instead of a single one.
-			chat := net.DecodeChat(msg)
+			chat := net.DecodeChat(incoming)
+			p.msgs = append(p.msgs, msg{
+				who:  chat.Name,
+				what: chat.Text,
+				when: time.Now(),
+			})
 			log.Printf("Got Chat: %q", chat.Text)
 		case net.MsgKindFiles:
-			fl := net.DecodeFileList(msg)
+			fl := net.DecodeFileList(incoming)
 			// TODO: set on web
 			log.Printf("Got Files: %#v", fl.Files)
 		}

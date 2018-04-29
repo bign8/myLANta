@@ -36,7 +36,7 @@
       <h2>Peers</h2>
       <ul class="list">
         {{- range .Peers -}}
-        <li>{{.}}</li>
+        <li>{{.Name}}: {{.Addr}}</li>
         {{- end}}
       </ul>
     </div>
