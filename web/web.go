@@ -194,7 +194,7 @@ func (p *Portal) msg(w http.ResponseWriter, r *http.Request) {
 
 	// Long pull http response of remaining content
 	if f, ok := w.(http.Flusher); ok {
-		ticker := time.NewTicker(time.Millisecond * 250)
+		ticker := time.NewTicker(time.Millisecond * 500) // twice a second
 		var err error
 		for i := 0; err == nil; i++ {
 			// Terrible way of doing this

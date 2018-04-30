@@ -8,6 +8,22 @@ a:hover {
   text-decoration: underline;
 }
 
+#chatsystem {
+  position: absolute;
+  top: 0px;
+  left: 50%;
+  height: 75%;
+  width: 50%;
+}
+
+#chatholder {
+  height: 90%;
+}
+
+#inwho {
+  width: 100px;
+}
+
 .chats .msg {
   margin: 0;
   padding: 0;
