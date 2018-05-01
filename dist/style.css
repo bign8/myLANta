@@ -8,6 +8,12 @@ a:hover {
   text-decoration: underline;
 }
 
+.chatdiv {
+  height: 85%;
+  width: 100%;
+  overflow: scroll;
+}
+
 #chatsystem {
   position: absolute;
   top: 0px;

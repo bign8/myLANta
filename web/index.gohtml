@@ -43,8 +43,8 @@
 
     <div class="group" id="chatsystem">
       <h2>Chat</h2>
-      <iframe src="/msg" name="message" width="100%" height="85%"></iframe>
-      <form action="/out" method="post" target="message" name="chat" autocomplete="off">
+      <iframe id="chatpane" src="/msg" name="message" width="100%" height="85%"></iframe>
+      <form id="chatform" action="/out" method="post" target="message" name="chat" autocomplete="off">
         <input id="inwho" name="who" type="text" placeholder="John Doe" />
         <input id="inmsg" name="msg" type="text" placeholder="message..." />
         <input type="submit" value="Send" />

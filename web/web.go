@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -34,6 +35,8 @@ func New(ctx context.Context, n *net.Network) http.Handler {
 	p.mux.HandleFunc("/del", p.del)
 	p.mux.HandleFunc("/msg", p.msg)
 	p.mux.HandleFunc("/out", p.out)
+
+	p.mux.HandleFunc("/chat", p.chat)
 
 	go networkController(ctx, n, p)
 	return p.mux
@@ -158,6 +161,29 @@ func (p *Portal) peerslist() []peer {
 	return names
 }
 
+func (p *Portal) chat(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		decode := json.NewDecoder(r.Body)
+		data := map[string]string{}
+		err := decode.Decode(&data)
+		if err != nil {
+			log.Printf("failed to decode send: %s", err)
+		}
+		r.Body.Close()
+		m := msg{
+			who:  data["who"],
+			what: data["msg"],
+			when: time.Now(),
+		}
+		p.msgs = append(p.msgs, m)
+		p.net.Send(net.EncodeChat(m.who, m.what))
+	} else if r.Method == http.MethodGet {
+		for _, msg := range p.msgs {
+			fmt.Fprintf(w, chatTPL, msg.when.Format(timeFmt), msg.who, msg.what)
+		}
+	}
+}
+
 func (p *Portal) out(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		r.ParseForm()
@@ -166,19 +192,12 @@ func (p *Portal) out(w http.ResponseWriter, r *http.Request) {
 			what: r.Form.Get("msg"),
 			when: time.Now(),
 		})
-
 		p.net.Send(net.EncodeChat(r.Form.Get("who"), r.Form.Get("msg")))
 	}
 	http.Redirect(w, r, "/msg", http.StatusSeeOther)
 }
 
-var chatTPL = `
-<p class="msg">
-	<span class="when">%s</span>
-	<span class="who">%s:</span>
-	<span class="what">%s</span>
-</p>
-`
+var chatTPL = `<p class="msg"><span class="when">%s</span><span class="who">%s:</span><span class="what">%s</span></p>`
 
 var timeFmt = "Jan _2 15:04:05"
 
