@@ -54,7 +54,7 @@
     var chatsys = pane.parentNode;
     chatsys.removeChild(pane);
     var pane = document.createElement('div');
-    pane.className = "chatdiv"
+    pane.className = "chatdiv chats"
     chatsys.insertBefore(pane, form);
     getChat(pane);
   }
@@ -69,8 +69,10 @@
   function getChat(pane) {
     var request = new XMLHttpRequest();
     request.onload = function () {
-      pane.innerHTML = request.responseText;
-      pane.scrollTo(0, pane.scrollHeight);
+      if (pane.innerHTML.length != request.responseText.length) {
+        pane.innerHTML = request.responseText;
+        pane.scrollTo(0, pane.scrollHeight);        
+      }
       window.setTimeout(getChat(pane), 250);
     }
     request.open("GET", "/chat", true);
