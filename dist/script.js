@@ -54,9 +54,10 @@
     var chatsys = pane.parentNode;
     chatsys.removeChild(pane);
     var pane = document.createElement('div');
+    pane.id = "chatpanediv"
     pane.className = "chatdiv chats"
     chatsys.insertBefore(pane, form);
-    getChat(pane);
+    getChat(pane, true);
   }
 
   function processForm(e) {
@@ -66,22 +67,27 @@
     return false;
   }
 
-  function getChat(pane) {
+  function getChat(pane, retry) {
     var request = new XMLHttpRequest();
     request.onload = function () {
-      if (pane.innerHTML.length != request.responseText.length) {
-        pane.innerHTML = request.responseText;
-        pane.scrollTo(0, pane.scrollHeight);        
+      if (request.responseText.length > 0) {
+        pane.innerHTML += request.responseText;
+        pane.scrollTo(0, pane.scrollHeight);
       }
-      window.setTimeout(getChat(pane), 250);
+      if (retry) {
+        // Look for new messages from remote people 2/second
+        window.setTimeout(function() { getChat(pane, true); }, 500);
+      }
     }
-    request.open("GET", "/chat", true);
-    request.send()
+    request.open("GET", "/chat?t=" + pane.children.length, true);
+    request.send();
   }
 
   function postChat(formData) {
     var request = new XMLHttpRequest();
     request.onload = function () {
+      // immediate reload chat for smooth performance
+      getChat(document.getElementById('chatpanediv'));
     }
     request.open("POST", "/chat", true);
     request.setRequestHeader("Content-Type", "application/json");

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -178,8 +179,15 @@ func (p *Portal) chat(w http.ResponseWriter, r *http.Request) {
 		p.msgs = append(p.msgs, m)
 		p.net.Send(net.EncodeChat(m.who, m.what))
 	} else if r.Method == http.MethodGet {
-		for _, msg := range p.msgs {
-			fmt.Fprintf(w, chatTPL, msg.when.Format(timeFmt), msg.who, msg.what)
+		v := r.URL.Query().Get("t")
+		var num int
+		if v != "" {
+			num, _ = strconv.Atoi(v)
+		}
+		for i, msg := range p.msgs {
+			if i >= num {
+				fmt.Fprintf(w, chatTPL, msg.when.Format(timeFmt), msg.who, msg.what)
+			}
 		}
 	}
 }
