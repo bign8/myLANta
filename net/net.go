@@ -21,6 +21,7 @@ type Network struct {
 	// Internal, but thread safe members
 	outbox chan *sending // outgoing messages queued by Send
 
+	Address string
 	// Public Interface to Network
 	Incoming chan *Message // Messages sent to this will be re-emitted for consumption by controller
 }
@@ -115,6 +116,7 @@ func (n *Network) Run(ctx context.Context) error {
 
 	// Setting loopbacks for my address (this is so we don't send messages to ourself)
 	ips := getMyIPs()
+	n.Address = ips[0] + n.port
 	log.Printf("My IPs: %s", ips)
 	for _, ip := range ips {
 		lookup[ip+n.port] = true

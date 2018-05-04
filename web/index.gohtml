@@ -24,9 +24,9 @@
           <a href="/get?file=remote.txt" class="link">remote.txt</a>
           <a href="#" title="<insert peers here>" class="info">?</a>
         </li> -->
-        {{- range .Files -}}
+        {{- range $key, $value := .Files -}}
         <li>
-          <a href="/get?file={{.}}">{{.}}</a>
+          <a href="{{ $value }}">{{ $key }}</a>
         </li>
         {{- end}}
       </ul>

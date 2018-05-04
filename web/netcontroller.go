@@ -70,7 +70,14 @@ func networkController(ctx context.Context, n *net.Network, p *Portal) {
 			log.Printf("Got Chat: %q", chat.Text)
 		case net.MsgKindFiles:
 			fl := net.DecodeFileList(incoming)
-			// TODO: set on web
+			p.loc.Lock()
+			for k, v := range fl.Files {
+				if _, ok := p.all.Files[k]; ok {
+					log.Printf("identical file name served, cant handle it...")
+				}
+				p.all.Files[k] = v
+			}
+			p.loc.Unlock()
 			log.Printf("Got Files: %#v", fl.Files)
 		}
 	}

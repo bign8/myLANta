@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -73,7 +72,7 @@ func (p *Portal) root(w http.ResponseWriter, r *http.Request) {
 		p.tpl = template.Must(template.ParseFiles("web/index.gohtml")) // TODO: remove on release
 		err := p.tpl.Execute(w, struct {
 			Peers []peer
-			Files []string
+			Files map[string]string
 		}{
 			Peers: p.peerslist(),
 			Files: p.list(),
@@ -109,9 +108,10 @@ func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
 	// Store the data in memory of the server.
 	p.loc.Lock()
 	p.mem[handler.Filename] = bits
-	p.all.Files[handler.Filename] = "todo"
-	p.net.Send(net.EncodeFileList(p.all))
+	p.all.Files[handler.Filename] = "http://" + p.net.Address + "/get?file=" + handler.Filename
+	data := net.EncodeFileList(p.all)
 	p.loc.Unlock()
+	p.net.Send(data)
 
 	// Update client
 	log.Printf("Loaded %q.\n", handler.Filename)
@@ -137,15 +137,17 @@ func (p *Portal) del(w http.ResponseWriter, r *http.Request) {
 }
 
 // short term hack
-func (p *Portal) list() []string {
+func (p *Portal) list() map[string]string {
 	p.loc.RLock()
-	names := make([]string, 0, len(p.mem))
+	files := map[string]string{}
+	for key, val := range p.all.Files {
+		files[key] = val
+	}
 	for key := range p.mem {
-		names = append(names, key)
+		files[key] = "/get?file=" + key
 	}
 	p.loc.RUnlock()
-	sort.Strings(names)
-	return names
+	return files
 }
 
 // another short term hack
