@@ -105,6 +105,10 @@ func (p *Portal) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Super cool idea. We have all download requests query our own local server.
+	// Local server checks for all peers who have that file, and splits the request across them.
+	// this would be pretty neat
+
 	// Store the data in memory of the server.
 	p.loc.Lock()
 	p.mem[handler.Filename] = bits
